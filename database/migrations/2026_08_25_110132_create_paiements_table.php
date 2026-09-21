@@ -1,0 +1,38 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('paiements', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('student_id')
+                ->constrained('students')
+                ->cascadeOnDelete();
+
+            $table->decimal('montant', 10, 2);
+
+            $table->string('type_paiement')->default('Frais de scolarité');
+
+            $table->string('mode_paiement')->default('Espèces');
+
+            $table->date('date_paiement');
+
+            $table->string('reference')->nullable();
+
+            $table->text('description')->nullable();
+
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('paiements');
+    }
+};
