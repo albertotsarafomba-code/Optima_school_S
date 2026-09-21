@@ -1,0 +1,587 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\SchoolYear;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
+class SchoolYearController extends Controller
+{
+    /**
+     * Récupérer l'établissement actuellement sélectionné.
+     */
+    private function establishmentId(): int
+    {
+        $user = auth()->user();
+
+        if (!$user) {
+            abort(403, 'Utilisateur non connecté.');
+        }
+
+        $id = session('establishment_id');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Aucun établissement dans la session
+        |--------------------------------------------------------------------------
+        */
+        if (!$id) {
+
+            $establishments = $user->establishments()->get();
+
+            // Aucun établissement
+            if ($establishments->isEmpty()) {
+                redirect()
+                    ->route('establishments.create')
+                    ->send();
+
+                exit;
+            }
+
+            // Un seul établissement
+            if ($establishments->count() === 1) {
+
+                $id = $establishments->first()->id;
+
+                session([
+                    'establishment_id' => $id,
+                ]);
+
+                return (int) $id;
+            }
+
+            // Plusieurs établissements
+            redirect()
+                ->route('establishments.choose')
+                ->send();
+
+            exit;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérifier que l'établissement appartient bien à l'utilisateur
+        |--------------------------------------------------------------------------
+        */
+        $exists = $user->establishments()
+            ->whereKey($id)
+            ->exists();
+
+        if (!$exists) {
+
+            session()->forget([
+                'establishment_id',
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            redirect()
+                ->route('establishments.choose')
+                ->send();
+
+            exit;
+        }
+
+        return (int) $id;
+    }
+
+    /**
+     * Vérifier qu'une année scolaire appartient
+     * à l'établissement actuellement sélectionné.
+     */
+    private function authorizeSchoolYear(SchoolYear $schoolYear): void
+    {
+        abort_unless(
+            (int) $schoolYear->establishment_id === $this->establishmentId(),
+            403,
+            'Cette année scolaire n’appartient pas à l’établissement sélectionné.'
+        );
+    }
+
+    /**
+     * Liste des années scolaires.
+     */
+    public function index()
+    {
+        $establishmentId = $this->establishmentId();
+
+        $schoolYears = SchoolYear::where(
+            'establishment_id',
+            $establishmentId
+        )
+            ->orderByDesc('is_active')
+            ->orderByDesc('start_date')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérifier l'année sélectionnée dans la session
+        |--------------------------------------------------------------------------
+        */
+        $selectedSchoolYearId = session('school_year_id');
+
+        $selectedSchoolYear = null;
+
+        if ($selectedSchoolYearId) {
+
+            $selectedSchoolYear = $schoolYears
+                ->firstWhere('id', (int) $selectedSchoolYearId);
+
+            /*
+            | Si l'année de la session n'existe plus
+            | pour cet établissement, on nettoie la session.
+            */
+            if (!$selectedSchoolYear) {
+
+                session()->forget([
+                    'school_year_id',
+                    'school_year_name',
+                ]);
+            }
+        }
+
+        /*
+|--------------------------------------------------------------------------
+| Si aucune année n'est sélectionnée,
+| utiliser automatiquement l'année active.
+|--------------------------------------------------------------------------
+*/
+if (!$selectedSchoolYear) {
+
+    $selectedSchoolYear = $schoolYears
+        ->firstWhere('is_active', true);
+
+    if ($selectedSchoolYear) {
+
+        session([
+            'school_year_id' => $selectedSchoolYear->id,
+            'school_year_name' => $selectedSchoolYear->name,
+        ]);
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Récupérer l'année réellement active
+|--------------------------------------------------------------------------
+*/
+$activeSchoolYear = $schoolYears
+    ->firstWhere('is_active', true);
+
+return view(
+    'school_years.index',
+    compact(
+        'schoolYears',
+        'selectedSchoolYear',
+        'activeSchoolYear'
+    )
+);
+
+}
+    /**
+     * Formulaire de création.
+     */
+    public function create()
+    {
+        $this->establishmentId();
+
+        return view('school_years.create');
+    }
+
+    /**
+     * Enregistrer une nouvelle année scolaire.
+     */
+    public function store(Request $request)
+    {
+        $establishmentId = $this->establishmentId();
+
+        $validated = $request->validate([
+            'name' => [
+                'required',
+                'string',
+                'max:50',
+
+                Rule::unique('school_years', 'name')
+                    ->where(
+                        fn ($query) =>
+                        $query->where(
+                            'establishment_id',
+                            $establishmentId
+                        )
+                    ),
+            ],
+
+            'start_date' => [
+                'required',
+                'date',
+            ],
+
+            'end_date' => [
+                'required',
+                'date',
+                'after:start_date',
+            ],
+
+            'is_active' => [
+                'nullable',
+                'boolean',
+            ],
+        ], [
+
+            'name.required' =>
+                'Le nom de l’année scolaire est obligatoire.',
+
+            'name.unique' =>
+                'Cette année scolaire existe déjà pour cet établissement.',
+
+            'start_date.required' =>
+                'La date de début est obligatoire.',
+
+            'end_date.required' =>
+                'La date de fin est obligatoire.',
+
+            'end_date.after' =>
+                'La date de fin doit être après la date de début.',
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Si cette année devient active,
+        | désactiver toutes les autres années.
+        |--------------------------------------------------------------------------
+        */
+        if ($request->boolean('is_active')) {
+
+            SchoolYear::where(
+                'establishment_id',
+                $establishmentId
+            )->update([
+                'is_active' => false,
+            ]);
+        }
+
+        $validated['establishment_id'] = $establishmentId;
+
+        $validated['is_active'] =
+            $request->boolean('is_active');
+
+        $schoolYear = SchoolYear::create($validated);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Si la nouvelle année est active,
+        | elle devient automatiquement l'année sélectionnée.
+        |--------------------------------------------------------------------------
+        */
+        if ($schoolYear->is_active) {
+
+            session([
+                'school_year_id' => $schoolYear->id,
+                'school_year_name' => $schoolYear->name,
+            ]);
+        }
+
+        return redirect()
+            ->route('school_years.index')
+            ->with(
+                'success',
+                'Année scolaire ajoutée avec succès.'
+            );
+    }
+
+    /**
+     * Afficher une année scolaire.
+     */
+    public function show(SchoolYear $schoolYear)
+    {
+        $this->authorizeSchoolYear($schoolYear);
+
+        return view(
+            'school_years.show',
+            compact('schoolYear')
+        );
+    }
+
+    /**
+     * Formulaire de modification.
+     */
+    public function edit(SchoolYear $schoolYear)
+    {
+        $this->authorizeSchoolYear($schoolYear);
+
+        return view(
+            'school_years.edit',
+            compact('schoolYear')
+        );
+    }
+
+    /**
+     * Modifier une année scolaire.
+     */
+    public function update(
+        Request $request,
+        SchoolYear $schoolYear
+    ) {
+        $this->authorizeSchoolYear($schoolYear);
+
+        $establishmentId = $this->establishmentId();
+
+        $validated = $request->validate([
+            'name' => [
+                'required',
+                'string',
+                'max:50',
+
+                Rule::unique('school_years', 'name')
+                    ->ignore($schoolYear->id)
+                    ->where(
+                        fn ($query) =>
+                        $query->where(
+                            'establishment_id',
+                            $establishmentId
+                        )
+                    ),
+            ],
+
+            'start_date' => [
+                'required',
+                'date',
+            ],
+
+            'end_date' => [
+                'required',
+                'date',
+                'after:start_date',
+            ],
+
+            'is_active' => [
+                'nullable',
+                'boolean',
+            ],
+        ], [
+
+            'name.required' =>
+                'Le nom de l’année scolaire est obligatoire.',
+
+            'name.unique' =>
+                'Cette année scolaire existe déjà pour cet établissement.',
+
+            'start_date.required' =>
+                'La date de début est obligatoire.',
+
+            'end_date.required' =>
+                'La date de fin est obligatoire.',
+
+            'end_date.after' =>
+                'La date de fin doit être après la date de début.',
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Si cette année devient active,
+        | désactiver les autres.
+        |--------------------------------------------------------------------------
+        */
+        if ($request->boolean('is_active')) {
+
+            SchoolYear::where(
+                'establishment_id',
+                $establishmentId
+            )
+                ->where(
+                    'id',
+                    '!=',
+                    $schoolYear->id
+                )
+                ->update([
+                    'is_active' => false,
+                ]);
+        }
+
+        $validated['is_active'] =
+            $request->boolean('is_active');
+
+        $schoolYear->update($validated);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Si elle est active, elle devient aussi
+        | l'année sélectionnée dans la session.
+        |--------------------------------------------------------------------------
+        */
+        if ($schoolYear->is_active) {
+
+            session([
+                'school_year_id' => $schoolYear->id,
+                'school_year_name' => $schoolYear->name,
+            ]);
+        }
+
+        return redirect()
+            ->route('school_years.index')
+            ->with(
+                'success',
+                'Année scolaire modifiée avec succès.'
+            );
+    }
+
+    /**
+     * Sélectionner une année scolaire.
+     *
+     * Cette méthode permet de consulter une ancienne année
+     * sans modifier son statut Active/Archivée.
+     */
+    public function select(SchoolYear $schoolYear)
+    {
+        $this->authorizeSchoolYear($schoolYear);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Enregistrer uniquement l'année consultée
+        |--------------------------------------------------------------------------
+        */
+        session([
+            'school_year_id' => $schoolYear->id,
+            'school_year_name' => $schoolYear->name,
+        ]);
+
+        return redirect()
+            ->route('dashboard')
+            ->with(
+                'success',
+                "L'année scolaire {$schoolYear->name} est maintenant sélectionnée."
+            );
+    }
+
+    /**
+     * Activer une année scolaire.
+     *
+     * Active réellement l'année et archive automatiquement
+     * toutes les autres années de l'établissement.
+     */
+    public function activate(SchoolYear $schoolYear)
+    {
+        $this->authorizeSchoolYear($schoolYear);
+
+        $establishmentId = $this->establishmentId();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Désactiver toutes les années
+        |--------------------------------------------------------------------------
+        */
+        SchoolYear::where(
+            'establishment_id',
+            $establishmentId
+        )->update([
+            'is_active' => false,
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Activer l'année choisie
+        |--------------------------------------------------------------------------
+        */
+        $schoolYear->update([
+            'is_active' => true,
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | L'année activée devient aussi l'année sélectionnée
+        |--------------------------------------------------------------------------
+        */
+        session([
+            'school_year_id' => $schoolYear->id,
+            'school_year_name' => $schoolYear->name,
+        ]);
+
+        return redirect()
+            ->route('school_years.index')
+            ->with(
+                'success',
+                'L’année scolaire "' .
+                $schoolYear->name .
+                '" est maintenant active.'
+            );
+    }
+
+    /**
+     * Supprimer une année scolaire.
+     */
+    public function destroy(SchoolYear $schoolYear)
+    {
+        $this->authorizeSchoolYear($schoolYear);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ne pas supprimer l'année active
+        |--------------------------------------------------------------------------
+        */
+        if ($schoolYear->is_active) {
+
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'Impossible de supprimer l’année scolaire active.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ne pas supprimer une année qui possède des classes
+        |--------------------------------------------------------------------------
+        */
+        if ($schoolYear->classRooms()->exists()) {
+
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'Impossible de supprimer cette année scolaire car elle possède déjà des classes.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ne pas supprimer une année qui possède des inscriptions
+        |--------------------------------------------------------------------------
+        */
+        if ($schoolYear->inscriptions()->exists()) {
+
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'Impossible de supprimer cette année scolaire car elle possède déjà des inscriptions.'
+                );
+        }
+
+        $schoolYearId = $schoolYear->id;
+
+        $schoolYear->delete();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Si cette année était sélectionnée dans la session,
+        | nettoyer la session.
+        |--------------------------------------------------------------------------
+        */
+        if ((int) session('school_year_id') === (int) $schoolYearId) {
+
+            session()->forget([
+                'school_year_id',
+                'school_year_name',
+            ]);
+        }
+
+        return redirect()
+            ->route('school_years.index')
+            ->with(
+                'success',
+                'Année scolaire supprimée avec succès.'
+            );
+    }
+}

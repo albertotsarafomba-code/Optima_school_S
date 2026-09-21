@@ -1,0 +1,579 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Student;
+use App\Models\ClassRoom;
+use App\Models\SchoolYear;
+use App\Models\Subject;
+use Illuminate\Http\Request;
+
+class StudentController extends Controller
+{
+    /**
+     * Liste des étudiants de l'établissement courant.
+     */
+    public function index(Request $request)
+    {
+        $establishmentId = session('establishment_id');
+
+        if (!$establishmentId) {
+            return redirect()
+                ->route('establishments.choose')
+                ->with(
+                    'error',
+                    'Veuillez sélectionner un établissement.'
+                );
+        }
+
+        $search = trim(
+            $request->input('search', '')
+        );
+
+        $students = Student::where(
+            'establishment_id',
+            $establishmentId
+        )
+            ->when(
+                $search !== '',
+                function ($query) use ($search) {
+                    $query->where(function ($q) use ($search) {
+                        $q->where(
+                            'matricule',
+                            'like',
+                            '%' . $search . '%'
+                        )
+                            ->orWhere(
+                                'nom',
+                                'like',
+                                '%' . $search . '%'
+                            )
+                            ->orWhere(
+                                'prenom',
+                                'like',
+                                '%' . $search . '%'
+                            )
+                            ->orWhere(
+                                'classe',
+                                'like',
+                                '%' . $search . '%'
+                            );
+                    });
+                }
+            )
+            ->latest()
+            ->get();
+
+        $classes = ClassRoom::where(
+            'establishment_id',
+            $establishmentId
+        )
+            ->orderBy('nom_classe')
+            ->get();
+
+        return view(
+            'students.index',
+            compact(
+                'students',
+                'classes',
+                'search'
+            )
+        );
+    }
+
+    /**
+     * Formulaire d'ajout.
+     */
+    public function create()
+    {
+        $establishmentId = session('establishment_id');
+
+        if (!$establishmentId) {
+            return redirect()
+                ->route('establishments.choose')
+                ->with(
+                    'error',
+                    'Veuillez sélectionner un établissement.'
+                );
+        }
+
+        $schoolYears = SchoolYear::where(
+            'establishment_id',
+            $establishmentId
+        )
+            ->orderByDesc('is_active')
+            ->orderByDesc('start_date')
+            ->get();
+
+        $activeSchoolYear = null;
+
+        $sessionSchoolYearId =
+            session('school_year_id');
+
+        if ($sessionSchoolYearId) {
+            $activeSchoolYear =
+                $schoolYears->firstWhere(
+                    'id',
+                    (int) $sessionSchoolYearId
+                );
+        }
+
+        if (!$activeSchoolYear) {
+            $activeSchoolYear =
+                $schoolYears->firstWhere(
+                    'is_active',
+                    true
+                );
+        }
+
+        if (!$activeSchoolYear) {
+            $activeSchoolYear =
+                $schoolYears->first();
+        }
+
+        $classesQuery = ClassRoom::where(
+            'establishment_id',
+            $establishmentId
+        );
+
+        if ($activeSchoolYear) {
+            $classesQuery->where(
+                'school_year_id',
+                $activeSchoolYear->id
+            );
+        }
+
+        $classes = $classesQuery
+            ->orderBy('nom_classe')
+            ->get();
+
+        $subjects = collect();
+
+        if ($activeSchoolYear) {
+            $subjects = Subject::where(
+                'establishment_id',
+                $establishmentId
+            )
+                ->where(
+                    'school_year_id',
+                    $activeSchoolYear->id
+                )
+                ->orderBy('nom')
+                ->get();
+        }
+
+        return view(
+            'students.create',
+            compact(
+                'classes',
+                'schoolYears',
+                'activeSchoolYear',
+                'subjects'
+            )
+        );
+    }
+
+    /**
+     * Enregistrer un étudiant.
+     */
+    public function store(Request $request)
+    {
+        $establishmentId =
+            session('establishment_id');
+
+        if (!$establishmentId) {
+            return redirect()
+                ->route('establishments.choose')
+                ->with(
+                    'error',
+                    'Veuillez sélectionner un établissement.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normaliser le téléphone AVANT validation
+        |--------------------------------------------------------------------------
+        */
+        $request->merge([
+            'telephone' => $this->normalizeTelephone(
+                $request->input('telephone')
+            ),
+        ]);
+
+        $validated = $request->validate([
+            'matricule' => [
+                'nullable',
+                'string',
+                'max:100',
+                'unique:students,matricule',
+            ],
+
+            'nom' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'prenom' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'date_naissance' => [
+                'required',
+                'date',
+            ],
+
+            'lieu_naissance' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'sexe' => [
+                'required',
+                'in:Masculin,Féminin',
+            ],
+
+            'adresse' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'telephone' => [
+                'nullable',
+                'string',
+                'regex:/^0[2-9][0-9]{8}$/',
+            ],
+
+            'email' => [
+                'nullable',
+                'string',
+                'email:rfc',
+                'max:255',
+            ],
+
+            'classe' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ], [
+            'matricule.unique' =>
+                'Ce matricule est déjà utilisé.',
+
+            'nom.required' =>
+                'Le nom est obligatoire.',
+
+            'nom.max' =>
+                'Le nom ne doit pas dépasser 255 caractères.',
+
+            'prenom.required' =>
+                'Le prénom est obligatoire.',
+
+            'prenom.max' =>
+                'Le prénom ne doit pas dépasser 255 caractères.',
+
+            'date_naissance.required' =>
+                'La date de naissance est obligatoire.',
+
+            'date_naissance.date' =>
+                'La date de naissance est invalide.',
+
+            'sexe.required' =>
+                'Le sexe est obligatoire.',
+
+            'sexe.in' =>
+                'Le sexe sélectionné est invalide.',
+
+            'telephone.regex' =>
+                'Veuillez saisir un numéro de téléphone malgache valide. Exemple : 034 12 345 67.',
+
+            'email.email' =>
+                'Veuillez saisir une adresse email valide.',
+
+            'email.max' =>
+                'L’adresse email ne doit pas dépasser 255 caractères.',
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normalisation email
+        |--------------------------------------------------------------------------
+        */
+        $validated['email'] = !empty($validated['email'])
+            ? strtolower(trim($validated['email']))
+            : null;
+
+        $validated['telephone'] =
+            $validated['telephone'] ?? null;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Isolation établissement
+        |--------------------------------------------------------------------------
+        */
+        $validated['establishment_id'] =
+            $establishmentId;
+
+        Student::create($validated);
+
+        return redirect()
+            ->route('students.index')
+            ->with(
+                'success',
+                'Étudiant ajouté avec succès.'
+            );
+    }
+
+    /**
+     * Afficher un étudiant.
+     */
+    public function show(Student $student)
+    {
+        $this->verifyEstablishment($student);
+
+        return view(
+            'students.show',
+            compact('student')
+        );
+    }
+
+    /**
+     * Formulaire modification.
+     */
+    public function edit(Student $student)
+    {
+        $this->verifyEstablishment($student);
+
+        $establishmentId =
+            session('establishment_id');
+
+        $classes = ClassRoom::where(
+            'establishment_id',
+            $establishmentId
+        )
+            ->orderBy('nom_classe')
+            ->get();
+
+        return view(
+            'students.edit',
+            compact(
+                'student',
+                'classes'
+            )
+        );
+    }
+
+    /**
+     * Mettre à jour un étudiant.
+     */
+    public function update(
+        Request $request,
+        Student $student
+    ) {
+        $this->verifyEstablishment($student);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normaliser téléphone
+        |--------------------------------------------------------------------------
+        */
+        $request->merge([
+            'telephone' => $this->normalizeTelephone(
+                $request->input('telephone')
+            ),
+        ]);
+
+        $validated = $request->validate([
+            'matricule' => [
+                'nullable',
+                'string',
+                'max:100',
+                'unique:students,matricule,' . $student->id,
+            ],
+
+            'nom' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'prenom' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+
+            'date_naissance' => [
+                'required',
+                'date',
+            ],
+
+            'lieu_naissance' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'sexe' => [
+                'required',
+                'in:Masculin,Féminin',
+            ],
+
+            'adresse' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'telephone' => [
+                'nullable',
+                'string',
+                'regex:/^0[2-9][0-9]{8}$/',
+            ],
+
+            'email' => [
+                'nullable',
+                'string',
+                'email:rfc',
+                'max:255',
+            ],
+
+            'classe' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ], [
+            'matricule.unique' =>
+                'Ce matricule est déjà utilisé.',
+
+            'nom.required' =>
+                'Le nom est obligatoire.',
+
+            'prenom.required' =>
+                'Le prénom est obligatoire.',
+
+            'date_naissance.required' =>
+                'La date de naissance est obligatoire.',
+
+            'date_naissance.date' =>
+                'La date de naissance est invalide.',
+
+            'sexe.required' =>
+                'Le sexe est obligatoire.',
+
+            'sexe.in' =>
+                'Le sexe sélectionné est invalide.',
+
+            'telephone.regex' =>
+                'Veuillez saisir un numéro de téléphone malgache valide. Exemple : 034 12 345 67.',
+
+            'email.email' =>
+                'Veuillez saisir une adresse email valide.',
+
+            'email.max' =>
+                'L’adresse email ne doit pas dépasser 255 caractères.',
+        ]);
+
+        $validated['email'] = !empty($validated['email'])
+            ? strtolower(trim($validated['email']))
+            : null;
+
+        $validated['telephone'] =
+            $validated['telephone'] ?? null;
+
+        /*
+         * On ne permet jamais de changer
+         * l'établissement via le formulaire.
+         */
+        unset($validated['establishment_id']);
+
+        $student->update($validated);
+
+        return redirect()
+            ->route('students.index')
+            ->with(
+                'success',
+                'Étudiant modifié avec succès.'
+            );
+    }
+
+    /**
+     * Supprimer.
+     */
+    public function destroy(Student $student)
+    {
+        $this->verifyEstablishment($student);
+
+        $student->delete();
+
+        return redirect()
+            ->route('students.index')
+            ->with(
+                'success',
+                'Étudiant supprimé avec succès.'
+            );
+    }
+
+    /**
+     * Vérifier l'établissement.
+     */
+    private function verifyEstablishment(
+        Student $student
+    ): void {
+        $establishmentId =
+            session('establishment_id');
+
+        if (!$establishmentId) {
+            abort(
+                403,
+                'Aucun établissement sélectionné.'
+            );
+        }
+
+        if (
+            (int) $student->establishment_id
+            !== (int) $establishmentId
+        ) {
+            abort(
+                403,
+                'Cet étudiant n\'appartient pas à l\'établissement sélectionné.'
+            );
+        }
+    }
+
+    /**
+     * Normaliser un téléphone malgache.
+     */
+    private function normalizeTelephone(
+        mixed $telephone
+    ): ?string {
+        if (
+            $telephone === null ||
+            trim((string) $telephone) === ''
+        ) {
+            return null;
+        }
+
+        $telephone = trim((string) $telephone);
+
+        $telephone = preg_replace(
+            '/[\s\-\(\)]/',
+            '',
+            $telephone
+        );
+
+        if (str_starts_with($telephone, '+261')) {
+            $telephone = '0' . substr($telephone, 4);
+        } elseif (str_starts_with($telephone, '261')) {
+            $telephone = '0' . substr($telephone, 3);
+        }
+
+        return $telephone;
+    }
+}

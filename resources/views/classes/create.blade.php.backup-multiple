@@ -1,0 +1,722 @@
+@extends('layouts.gestion-ecole')
+
+@section('title', 'Ajouter une classe')
+
+@section('content')
+
+<div class="mx-auto max-w-6xl space-y-6">
+
+    {{-- HEADER --}}
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
+        <div class="flex items-center gap-3">
+
+            <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     class="h-6 w-6"
+                     fill="none"
+                     viewBox="0 0 24 24"
+                     stroke="currentColor"
+                     stroke-width="1.8">
+                    <path stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M4 6.5A2.5 2.5 0 016.5 4h11A2.5 2.5 0 0120 6.5v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 17.5v-11z"/>
+                    <path stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M8 8h8M8 12h8M8 16h5"/>
+                </svg>
+            </div>
+
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">
+                    Ajouter une classe
+                </h1>
+
+                <p class="mt-1 text-sm text-slate-500">
+                    Créez une classe adaptée à la structure de votre établissement.
+                </p>
+            </div>
+
+        </div>
+
+        <a href="{{ route('class_rooms.index') }}"
+           class="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
+
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 class="h-5 w-5"
+                 fill="none"
+                 viewBox="0 0 24 24"
+                 stroke="currentColor"
+                 stroke-width="1.8">
+                <path stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+
+            Retour aux classes
+        </a>
+
+    </div>
+
+
+    {{-- ERREURS --}}
+    @if ($errors->any())
+
+        <div class="rounded-xl border border-red-200 bg-red-50 p-4">
+
+            <div class="flex items-start gap-3">
+
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         class="h-5 w-5"
+                         fill="none"
+                         viewBox="0 0 24 24"
+                         stroke="currentColor"
+                         stroke-width="2">
+                        <path stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M12 9v4m0 4h.01M10.29 3.86l-7.82 14a2 2 0 001.74 3h15.58a2 2 0 001.74-3l-7.82-14a2 2 0 00-3.42 0z"/>
+                    </svg>
+
+                </div>
+
+                <div>
+
+                    <h3 class="font-semibold text-red-800">
+                        Vérifiez les informations saisies.
+                    </h3>
+
+                    <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-red-700">
+
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+
+                    </ul>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    @endif
+
+
+    {{-- FORMULAIRE --}}
+    <form method="POST"
+          action="{{ route('class_rooms.store') }}"
+          class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+        @csrf
+
+
+        {{-- TITRE SECTION --}}
+        <div class="border-b border-slate-200 bg-slate-50 px-6 py-5">
+
+            <div class="flex items-center gap-3">
+
+                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         class="h-5 w-5"
+                         fill="none"
+                         viewBox="0 0 24 24"
+                         stroke="currentColor"
+                         stroke-width="1.8">
+                        <path stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M4 6.5A2.5 2.5 0 016.5 4h11A2.5 2.5 0 0120 6.5v11a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 17.5v-11z"/>
+                        <path stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M8 8h8M8 12h8M8 16h5"/>
+                    </svg>
+
+                </div>
+
+                <div>
+
+                    <h2 class="font-bold text-slate-800">
+                        Structure de la classe
+                    </h2>
+
+                    <p class="text-sm text-slate-500">
+                        Les champs disponibles dépendent du type d'établissement.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <div class="space-y-7 p-6">
+
+
+            {{-- TYPE ETABLISSEMENT --}}
+            <div class="rounded-xl border border-blue-200 bg-blue-50 p-4">
+
+                <div class="flex items-center gap-3">
+
+                    <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             class="h-5 w-5"
+                             fill="none"
+                             viewBox="0 0 24 24"
+                             stroke="currentColor"
+                             stroke-width="1.8">
+                            <path stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6M9 9h.01M12 9h.01M15 9h.01"/>
+                        </svg>
+
+                    </div>
+
+                    <div>
+
+                        <p class="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                            Type d'établissement
+                        </p>
+
+                        <p class="text-lg font-bold capitalize text-blue-900">
+                            {{ $typeName }}
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            {{-- NIVEAU --}}
+            <div>
+
+                <label for="niveau"
+                       class="mb-2 block text-sm font-semibold text-slate-700">
+
+                    Niveau
+                    <span class="text-red-500">*</span>
+
+                </label>
+
+                <select id="niveau"
+                        name="niveau"
+                        required
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                    <option value="">
+                        Sélectionner un niveau
+                    </option>
+
+                    @foreach ($niveaux as $niveau)
+
+                        <option value="{{ $niveau }}"
+                            @selected(old('niveau') === $niveau)>
+
+                            {{ $niveau }}
+
+                        </option>
+
+                    @endforeach
+
+                </select>
+
+                @error('niveau')
+                    <p class="mt-1.5 text-sm text-red-600">
+                        {{ $message }}
+                    </p>
+                @enderror
+
+            </div>
+
+
+            {{-- FILIERE UNIQUEMENT UNIVERSITE --}}
+            @if ($typeName === 'université')
+
+                <div>
+
+                    <label for="filiere"
+                           class="mb-2 block text-sm font-semibold text-slate-700">
+
+                        Filière
+                        <span class="text-red-500">*</span>
+
+                    </label>
+
+                    <input type="text"
+                           id="filiere"
+                           name="filiere"
+                           value="{{ old('filiere') }}"
+                           required
+                           maxlength="150"
+                           placeholder="Ex. Génie Informatique"
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                    <p class="mt-1.5 text-xs text-slate-500">
+                        La filière est utilisée uniquement pour l'université.
+                    </p>
+
+                    @error('filiere')
+                        <p class="mt-1.5 text-sm text-red-600">
+                            {{ $message }}
+                        </p>
+                    @enderror
+
+                </div>
+
+            @endif
+
+
+            {{-- APERCU --}}
+            <div class="rounded-xl border border-green-200 bg-green-50 p-4">
+
+                <div class="flex items-start gap-3">
+
+                    <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-600 text-white">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             class="h-5 w-5"
+                             fill="none"
+                             viewBox="0 0 24 24"
+                             stroke="currentColor"
+                             stroke-width="1.8">
+                            <path stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M5 12h14M12 5l7 7-7 7"/>
+                        </svg>
+
+                    </div>
+
+                    <div>
+
+                        <p class="text-xs font-semibold uppercase tracking-wide text-green-700">
+                            Nom automatique de la classe
+                        </p>
+
+                        <p id="class-preview"
+                           class="mt-1 text-lg font-bold text-green-900">
+                            Sélectionnez un niveau
+                        </p>
+
+                        <p class="mt-1 text-sm text-green-700">
+                            Le nom de la classe sera généré automatiquement.
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            {{-- ANNEE + SALLE --}}
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+
+
+                {{-- ANNEE --}}
+                <div>
+
+                    <label for="school_year_id"
+                           class="mb-2 block text-sm font-semibold text-slate-700">
+
+                        Année scolaire
+                        <span class="text-red-500">*</span>
+
+                    </label>
+
+                    <select id="school_year_id"
+                            name="school_year_id"
+                            required
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                        <option value="">
+                            Sélectionner une année
+                        </option>
+
+                        @foreach ($schoolYears as $schoolYear)
+
+                            @php
+                                $schoolYearLabel =
+                                    $schoolYear->nom
+                                    ?? $schoolYear->name
+                                    ?? $schoolYear->annee_scolaire
+                                    ?? $schoolYear->libelle
+                                    ?? '';
+                            @endphp
+
+                            <option value="{{ $schoolYear->id }}"
+                                @selected(old('school_year_id') == $schoolYear->id)>
+
+                                {{ $schoolYearLabel }}
+
+                            </option>
+
+                        @endforeach
+
+                    </select>
+
+                    @error('school_year_id')
+                        <p class="mt-1.5 text-sm text-red-600">
+                            {{ $message }}
+                        </p>
+                    @enderror
+
+                </div>
+
+
+                {{-- SALLE --}}
+                <div>
+
+                    <label for="salle_id"
+                           class="mb-2 block text-sm font-semibold text-slate-700">
+
+                        Salle
+                        <span class="text-red-500">*</span>
+
+                    </label>
+
+                    @if ($salles->count() > 0)
+
+                        <select id="salle_id"
+                                name="salle_id"
+                                required
+                                class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                            <option value="">
+                                Sélectionner une salle
+                            </option>
+
+                            @foreach ($salles as $salle)
+
+                                <option value="{{ $salle->id }}"
+                                    @selected(old('salle_id') == $salle->id)>
+
+                                    {{ $salle->nom }}
+
+                                    @if ($salle->capacite)
+                                        — {{ $salle->capacite }} places
+                                    @endif
+
+                                </option>
+
+                            @endforeach
+
+                        </select>
+
+                    @else
+
+                        <div class="rounded-lg border border-amber-200 bg-amber-50 p-4">
+
+                            <p class="text-sm font-semibold text-amber-800">
+                                Aucune salle disponible.
+                            </p>
+
+                            <p class="mt-1 text-sm text-amber-700">
+                                Créez d'abord une salle.
+                            </p>
+
+                            <a href="{{ route('salles.create') }}"
+                               class="mt-3 inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-green-700">
+
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                     class="h-4 w-4"
+                                     fill="none"
+                                     viewBox="0 0 24 24"
+                                     stroke="currentColor"
+                                     stroke-width="2">
+                                    <path stroke-linecap="round"
+                                          stroke-linejoin="round"
+                                          d="M12 4v16m8-8H4"/>
+                                </svg>
+
+                                Ajouter une salle
+
+                            </a>
+
+                        </div>
+
+                    @endif
+
+                    @error('salle_id')
+                        <p class="mt-1.5 text-sm text-red-600">
+                            {{ $message }}
+                        </p>
+                    @enderror
+
+                </div>
+
+            </div>
+
+
+            {{-- ENSEIGNANT --}}
+            <div>
+
+                <label for="teacher_id"
+                       class="mb-2 block text-sm font-semibold text-slate-700">
+
+                    Enseignant responsable
+
+                </label>
+
+                <select id="teacher_id"
+                        name="teacher_id"
+                        class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                    <option value="">
+                        Aucun enseignant
+                    </option>
+
+                    @foreach ($teachers as $teacher)
+
+                        <option value="{{ $teacher->id }}"
+                            @selected(old('teacher_id') == $teacher->id)>
+
+                            {{ $teacher->nom }} {{ $teacher->prenom }}
+
+                        </option>
+
+                    @endforeach
+
+                </select>
+
+                @error('teacher_id')
+                    <p class="mt-1.5 text-sm text-red-600">
+                        {{ $message }}
+                    </p>
+                @enderror
+
+            </div>
+
+
+            {{-- LIBELLE ANNEE --}}
+            <div>
+
+                <label for="annee_scolaire"
+                       class="mb-2 block text-sm font-semibold text-slate-700">
+
+                    Libellé de l'année scolaire
+
+                </label>
+
+                <input type="text"
+                       id="annee_scolaire"
+                       name="annee_scolaire"
+                       value="{{ old('annee_scolaire') }}"
+                       maxlength="50"
+                       placeholder="Ex. 2026-2027"
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                @error('annee_scolaire')
+                    <p class="mt-1.5 text-sm text-red-600">
+                        {{ $message }}
+                    </p>
+                @enderror
+
+            </div>
+
+
+            {{-- EFFECTIFS --}}
+            <div>
+
+                <div class="mb-4">
+
+                    <h3 class="text-base font-bold text-slate-800">
+                        Capacité et effectifs
+                    </h3>
+
+                    <p class="mt-1 text-sm text-slate-500">
+                        Définissez les limites d'effectif de la classe.
+                    </p>
+
+                </div>
+
+                <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
+
+                    {{-- CAPACITE --}}
+                    <div>
+
+                        <label for="capacite"
+                               class="mb-2 block text-sm font-semibold text-slate-700">
+                            Capacité
+                        </label>
+
+                        <input type="number"
+                               id="capacite"
+                               name="capacite"
+                               value="{{ old('capacite') }}"
+                               min="1"
+                               max="10000"
+                               placeholder="Ex. 30"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                        @error('capacite')
+                            <p class="mt-1.5 text-sm text-red-600">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+
+                    {{-- MINIMUM --}}
+                    <div>
+
+                        <label for="effectif_minimum"
+                               class="mb-2 block text-sm font-semibold text-slate-700">
+                            Effectif minimum
+                        </label>
+
+                        <input type="number"
+                               id="effectif_minimum"
+                               name="effectif_minimum"
+                               value="{{ old('effectif_minimum') }}"
+                               min="0"
+                               max="10000"
+                               placeholder="Ex. 10"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                        @error('effectif_minimum')
+                            <p class="mt-1.5 text-sm text-red-600">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+
+                    {{-- MAXIMUM --}}
+                    <div>
+
+                        <label for="effectif_maximum"
+                               class="mb-2 block text-sm font-semibold text-slate-700">
+                            Effectif maximum
+                        </label>
+
+                        <input type="number"
+                               id="effectif_maximum"
+                               name="effectif_maximum"
+                               value="{{ old('effectif_maximum') }}"
+                               min="1"
+                               max="10000"
+                               placeholder="Ex. 30"
+                               class="block w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+
+                        @error('effectif_maximum')
+                            <p class="mt-1.5 text-sm text-red-600">
+                                {{ $message }}
+                            </p>
+                        @enderror
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        {{-- FOOTER --}}
+        <div class="flex flex-col-reverse gap-3 border-t border-slate-200 bg-slate-50 px-6 py-5 sm:flex-row sm:justify-end">
+
+            <a href="{{ route('class_rooms.index') }}"
+               class="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+
+                Annuler
+
+            </a>
+
+            <button type="submit"
+                    class="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">
+
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     class="h-5 w-5"
+                     fill="none"
+                     viewBox="0 0 24 24"
+                     stroke="currentColor"
+                     stroke-width="1.8">
+                    <path stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M12 4v16m8-8H4"/>
+                </svg>
+
+                Ajouter la classe
+
+            </button>
+
+        </div>
+
+    </form>
+
+</div>
+
+
+@push('scripts')
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const niveau = document.getElementById('niveau');
+    const filiere = document.getElementById('filiere');
+    const preview = document.getElementById('class-preview');
+
+    function updatePreview() {
+
+        if (!niveau || !preview) {
+            return;
+        }
+
+        const niveauValue = niveau.value.trim();
+
+        if (!niveauValue) {
+            preview.textContent = 'Sélectionnez un niveau';
+            return;
+        }
+
+        @if ($typeName === 'université')
+
+            const filiereValue = filiere
+                ? filiere.value.trim()
+                : '';
+
+            if (filiereValue) {
+                preview.textContent =
+                    niveauValue + ' - ' + filiereValue;
+            } else {
+                preview.textContent =
+                    niveauValue + ' - Filière';
+            }
+
+        @else
+
+            preview.textContent = niveauValue;
+
+        @endif
+    }
+
+    if (niveau) {
+        niveau.addEventListener(
+            'change',
+            updatePreview
+        );
+    }
+
+    if (filiere) {
+        filiere.addEventListener(
+            'input',
+            updatePreview
+        );
+    }
+
+    updatePreview();
+
+});
+</script>
+
+@endpush
+
+@endsection

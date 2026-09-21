@@ -1,0 +1,1033 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\ClassRoom;
+use App\Models\Establishment;
+use App\Models\Inscription;
+use App\Models\SchoolYear;
+use App\Models\Student;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+class InscriptionController extends Controller
+{
+    /**
+     * Retourne l'établissement actuellement sélectionné
+     * et vérifie que l'utilisateur a réellement accès à celui-ci.
+     *
+     * ADMIN :
+     *   établissement dont il est propriétaire.
+     *
+     * SECRETAIRE / AUTRES :
+     *   établissement affecté via establishment_user.
+     */
+    private function currentEstablishment(): Establishment
+    {
+        $establishmentId = session('establishment_id');
+
+        if (!$establishmentId) {
+            abort(
+                403,
+                'Aucun établissement sélectionné.'
+            );
+        }
+
+        $user = Auth::user();
+
+        if (!$user) {
+            abort(
+                403,
+                'Utilisateur non authentifié.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | ADMIN
+        |--------------------------------------------------------------------------
+        */
+        if ($user->role === 'admin') {
+            $establishment = Establishment::query()
+                ->where('id', $establishmentId)
+                ->where('user_id', $user->id)
+                ->with('schoolType')
+                ->first();
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | SECRETAIRE / AUTRES UTILISATEURS
+        |--------------------------------------------------------------------------
+        */
+        else {
+            $establishment = $user
+                ->assignedEstablishments()
+                ->where('establishments.id', $establishmentId)
+                ->with('schoolType')
+                ->first();
+        }
+
+        if (!$establishment) {
+            abort(
+                403,
+                'Accès non autorisé à cet établissement.'
+            );
+        }
+
+        return $establishment;
+    }
+
+    /**
+     * Vérifie que l'année scolaire appartient
+     * à l'établissement courant.
+     */
+    private function currentSchoolYear(
+        int $schoolYearId,
+        int $establishmentId
+    ): SchoolYear {
+        return SchoolYear::query()
+            ->where('id', $schoolYearId)
+            ->where('establishment_id', $establishmentId)
+            ->firstOrFail();
+    }
+
+    /**
+     * Vérifie qu'une classe appartient
+     * à l'établissement courant.
+     */
+    private function currentClassRoom(
+        int $classRoomId,
+        int $establishmentId
+    ): ClassRoom {
+        return ClassRoom::query()
+            ->where('id', $classRoomId)
+            ->where('establishment_id', $establishmentId)
+            ->firstOrFail();
+    }
+
+    /**
+     * Génère automatiquement un matricule.
+     */
+    private function generateMatricule(
+        Establishment $establishment
+    ): string {
+        $prefix = strtoupper(
+            substr(
+                preg_replace(
+                    '/[^A-Za-z0-9]/',
+                    '',
+                    $establishment->nom
+                ),
+                0,
+                4
+            )
+        );
+
+        if ($prefix === '') {
+            $prefix = 'ETU';
+        }
+
+        do {
+            $matricule = $prefix . '-' . date('Y') . '-' . str_pad(
+                (string) random_int(1, 99999),
+                5,
+                '0',
+                STR_PAD_LEFT
+            );
+        } while (
+            Student::where('matricule', $matricule)->exists()
+        );
+
+        return $matricule;
+    }
+
+    /**
+     * Liste des inscriptions.
+     */
+    public function index(Request $request)
+    {
+        $establishment = $this->currentEstablishment();
+
+        $schoolYears = SchoolYear::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->orderByDesc('active')
+            ->orderByDesc('date_debut')
+            ->get();
+
+        $schoolYearId = $request->integer(
+            'school_year_id'
+        );
+
+        if (!$schoolYearId) {
+            $schoolYearId = session('school_year_id');
+        }
+
+        $inscriptionsQuery = Inscription::query()
+            ->with([
+                'student',
+                'classRoom',
+                'schoolYear',
+            ])
+            ->where(
+                'establishment_id',
+                $establishment->id
+            );
+
+        if ($schoolYearId) {
+            $inscriptionsQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $inscriptions = $inscriptionsQuery
+            ->orderByDesc('id')
+            ->paginate(15)
+            ->withQueryString();
+
+        return view(
+            'inscriptions.index',
+            compact(
+                'establishment',
+                'schoolYears',
+                'schoolYearId',
+                'inscriptions'
+            )
+        );
+    }
+
+    /**
+     * Formulaire de création d'une inscription.
+     */
+    public function create(Request $request)
+    {
+        $establishment = $this->currentEstablishment();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Années scolaires
+        |--------------------------------------------------------------------------
+        */
+        $schoolYears = SchoolYear::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->orderByDesc('active')
+            ->orderByDesc('date_debut')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Année scolaire sélectionnée
+        |--------------------------------------------------------------------------
+        */
+        $schoolYearId = $request->integer(
+            'school_year_id'
+        );
+
+        if (!$schoolYearId) {
+            $schoolYearId = session('school_year_id');
+        }
+
+        $selectedSchoolYear = null;
+
+        if ($schoolYearId) {
+            $selectedSchoolYear = SchoolYear::query()
+                ->where('id', $schoolYearId)
+                ->where(
+                    'establishment_id',
+                    $establishment->id
+                )
+                ->first();
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Classes
+        |--------------------------------------------------------------------------
+        */
+        $classesQuery = ClassRoom::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            );
+
+        if ($schoolYearId) {
+            $classesQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $classes = $classesQuery
+            ->orderBy('nom_classe')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Étudiants
+        |--------------------------------------------------------------------------
+        |
+        | On récupère les étudiants de l'établissement courant.
+        |
+        */
+        $students = Student::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->orderBy('nom')
+            ->orderBy('prenom')
+            ->get();
+
+        return view(
+            'inscriptions.create',
+            compact(
+                'establishment',
+                'schoolYears',
+                'selectedSchoolYear',
+                'classes',
+                'students',
+                'schoolYearId'
+            )
+        );
+    }
+
+    /**
+     * Enregistre une nouvelle inscription.
+     */
+    public function store(Request $request)
+    {
+        $establishment = $this->currentEstablishment();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Validation de base
+        |--------------------------------------------------------------------------
+        */
+        $validated = $request->validate([
+            'school_year_id' => [
+                'required',
+                'integer',
+                Rule::exists('school_years', 'id')
+                    ->where(
+                        fn ($query) =>
+                            $query->where(
+                                'establishment_id',
+                                $establishment->id
+                            )
+                    ),
+            ],
+
+            'class_room_id' => [
+                'required',
+                'integer',
+                Rule::exists('class_rooms', 'id')
+                    ->where(
+                        fn ($query) =>
+                            $query->where(
+                                'establishment_id',
+                                $establishment->id
+                            )
+                    ),
+            ],
+
+            'student_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('students', 'id')
+                    ->where(
+                        fn ($query) =>
+                            $query->where(
+                                'establishment_id',
+                                $establishment->id
+                            )
+                    ),
+            ],
+
+            'nom' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'prenom' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'date_naissance' => [
+                'nullable',
+                'date',
+            ],
+
+            'lieu_naissance' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            'sexe' => [
+                'nullable',
+                'string',
+                'max:20',
+            ],
+
+            'adresse' => [
+                'nullable',
+                'string',
+                'max:500',
+            ],
+
+            'telephone' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
+
+            'email' => [
+                'nullable',
+                'email',
+                'max:255',
+            ],
+        ]);
+
+        return DB::transaction(function () use (
+            $request,
+            $validated,
+            $establishment
+        ) {
+            /*
+            |--------------------------------------------------------------------------
+            | Vérification année
+            |--------------------------------------------------------------------------
+            */
+            $schoolYear = $this->currentSchoolYear(
+                (int) $validated['school_year_id'],
+                $establishment->id
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | Vérification classe
+            |--------------------------------------------------------------------------
+            */
+            $classRoom = $this->currentClassRoom(
+                (int) $validated['class_room_id'],
+                $establishment->id
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | Vérification cohérence classe / année
+            |--------------------------------------------------------------------------
+            */
+            if (
+                $classRoom->school_year_id &&
+                (int) $classRoom->school_year_id !==
+                (int) $schoolYear->id
+            ) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'class_room_id' =>
+                            'La classe sélectionnée ne correspond pas à l’année scolaire.'
+                    ]);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Étudiant existant
+            |--------------------------------------------------------------------------
+            */
+            $student = null;
+
+            if (!empty($validated['student_id'])) {
+                $student = Student::query()
+                    ->where(
+                        'id',
+                        $validated['student_id']
+                    )
+                    ->where(
+                        'establishment_id',
+                        $establishment->id
+                    )
+                    ->firstOrFail();
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Création d'un nouvel étudiant
+            |--------------------------------------------------------------------------
+            */
+            if (!$student) {
+                if (
+                    empty($validated['nom']) ||
+                    empty($validated['prenom'])
+                ) {
+                    return back()
+                        ->withInput()
+                        ->withErrors([
+                            'nom' =>
+                                'Le nom est obligatoire pour créer un nouvel étudiant.',
+                            'prenom' =>
+                                'Le prénom est obligatoire pour créer un nouvel étudiant.',
+                        ]);
+                }
+
+                $student = new Student();
+
+                $student->establishment_id =
+                    $establishment->id;
+
+                /*
+                |--------------------------------------------------------------------------
+                | Matricule
+                |--------------------------------------------------------------------------
+                */
+                if (
+                    empty($validated['matricule'] ?? null)
+                ) {
+                    $student->matricule =
+                        $this->generateMatricule(
+                            $establishment
+                        );
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Données étudiant
+                |--------------------------------------------------------------------------
+                */
+                $student->nom =
+                    $validated['nom'];
+
+                $student->prenom =
+                    $validated['prenom'];
+
+                if (
+                    isset(
+                        $validated['date_naissance']
+                    )
+                ) {
+                    $student->date_naissance =
+                        $validated['date_naissance'];
+                }
+
+                if (
+                    isset(
+                        $validated['lieu_naissance']
+                    )
+                ) {
+                    $student->lieu_naissance =
+                        $validated['lieu_naissance'];
+                }
+
+                if (
+                    isset($validated['sexe'])
+                ) {
+                    $student->sexe =
+                        $validated['sexe'];
+                }
+
+                if (
+                    isset($validated['adresse'])
+                ) {
+                    $student->adresse =
+                        $validated['adresse'];
+                }
+
+                if (
+                    isset($validated['telephone'])
+                ) {
+                    $student->telephone =
+                        $validated['telephone'];
+                }
+
+                if (
+                    isset($validated['email'])
+                ) {
+                    $student->email =
+                        $validated['email'];
+                }
+
+                $student->save();
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Vérification inscription déjà existante
+            |--------------------------------------------------------------------------
+            */
+            $alreadyExists = Inscription::query()
+                ->where(
+                    'establishment_id',
+                    $establishment->id
+                )
+                ->where(
+                    'student_id',
+                    $student->id
+                )
+                ->where(
+                    'school_year_id',
+                    $schoolYear->id
+                )
+                ->exists();
+
+            if ($alreadyExists) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'student_id' =>
+                            'Cet étudiant est déjà inscrit dans cette année scolaire.'
+                    ]);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Création inscription
+            |--------------------------------------------------------------------------
+            */
+            $inscription = new Inscription();
+
+            $inscription->establishment_id =
+                $establishment->id;
+
+            $inscription->student_id =
+                $student->id;
+
+            $inscription->class_room_id =
+                $classRoom->id;
+
+            $inscription->school_year_id =
+                $schoolYear->id;
+
+            /*
+            |--------------------------------------------------------------------------
+            | Autres champs éventuels
+            |--------------------------------------------------------------------------
+            */
+            if (
+                \Schema::hasColumn(
+                    'inscriptions',
+                    'date_inscription'
+                )
+            ) {
+                $inscription->date_inscription =
+                    $request->input(
+                        'date_inscription'
+                    ) ?: now()->toDateString();
+            }
+
+            if (
+                \Schema::hasColumn(
+                    'inscriptions',
+                    'statut'
+                )
+            ) {
+                $inscription->statut =
+                    $request->input(
+                        'statut'
+                    ) ?: 'active';
+            }
+
+            if (
+                \Schema::hasColumn(
+                    'inscriptions',
+                    'observation'
+                )
+            ) {
+                $inscription->observation =
+                    $request->input(
+                        'observation'
+                    );
+            }
+
+            $inscription->save();
+
+            return redirect()
+                ->route('inscriptions.index')
+                ->with(
+                    'success',
+                    'Inscription enregistrée avec succès.'
+                );
+        });
+    }
+
+    /**
+     * Affiche une inscription.
+     */
+    public function show(Inscription $inscription)
+    {
+        $establishment =
+            $this->currentEstablishment();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sécurité établissement
+        |--------------------------------------------------------------------------
+        */
+        if (
+            (int) $inscription->establishment_id !==
+            (int) $establishment->id
+        ) {
+            abort(
+                403,
+                'Accès non autorisé à cette inscription.'
+            );
+        }
+
+        $inscription->load([
+            'student',
+            'classRoom',
+            'schoolYear',
+        ]);
+
+        return view(
+            'inscriptions.show',
+            compact(
+                'inscription',
+                'establishment'
+            )
+        );
+    }
+
+    /**
+     * Formulaire de modification.
+     */
+    public function edit(Inscription $inscription)
+    {
+        $establishment =
+            $this->currentEstablishment();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sécurité
+        |--------------------------------------------------------------------------
+        */
+        if (
+            (int) $inscription->establishment_id !==
+            (int) $establishment->id
+        ) {
+            abort(
+                403,
+                'Accès non autorisé à cette inscription.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Années scolaires
+        |--------------------------------------------------------------------------
+        */
+        $schoolYears = SchoolYear::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->orderByDesc('active')
+            ->orderByDesc('date_debut')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Classes
+        |--------------------------------------------------------------------------
+        */
+        $classes = ClassRoom::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->where(
+                'school_year_id',
+                $inscription->school_year_id
+            )
+            ->orderBy('nom_classe')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Étudiants
+        |--------------------------------------------------------------------------
+        */
+        $students = Student::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->orderBy('nom')
+            ->orderBy('prenom')
+            ->get();
+
+        return view(
+            'inscriptions.edit',
+            compact(
+                'inscription',
+                'establishment',
+                'schoolYears',
+                'classes',
+                'students'
+            )
+        );
+    }
+
+    /**
+     * Met à jour une inscription.
+     */
+    public function update(
+        Request $request,
+        Inscription $inscription
+    ) {
+        $establishment =
+            $this->currentEstablishment();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sécurité établissement
+        |--------------------------------------------------------------------------
+        */
+        if (
+            (int) $inscription->establishment_id !==
+            (int) $establishment->id
+        ) {
+            abort(
+                403,
+                'Accès non autorisé à cette inscription.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Validation
+        |--------------------------------------------------------------------------
+        */
+        $validated = $request->validate([
+            'school_year_id' => [
+                'required',
+                'integer',
+                Rule::exists('school_years', 'id')
+                    ->where(
+                        fn ($query) =>
+                            $query->where(
+                                'establishment_id',
+                                $establishment->id
+                            )
+                    ),
+            ],
+
+            'class_room_id' => [
+                'required',
+                'integer',
+                Rule::exists('class_rooms', 'id')
+                    ->where(
+                        fn ($query) =>
+                            $query->where(
+                                'establishment_id',
+                                $establishment->id
+                            )
+                    ),
+            ],
+
+            'student_id' => [
+                'required',
+                'integer',
+                Rule::exists('students', 'id')
+                    ->where(
+                        fn ($query) =>
+                            $query->where(
+                                'establishment_id',
+                                $establishment->id
+                            )
+                    ),
+            ],
+
+            'date_inscription' => [
+                'nullable',
+                'date',
+            ],
+
+            'statut' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
+
+            'observation' => [
+                'nullable',
+                'string',
+                'max:1000',
+            ],
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Année
+        |--------------------------------------------------------------------------
+        */
+        $schoolYear = $this->currentSchoolYear(
+            (int) $validated['school_year_id'],
+            $establishment->id
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Classe
+        |--------------------------------------------------------------------------
+        */
+        $classRoom = $this->currentClassRoom(
+            (int) $validated['class_room_id'],
+            $establishment->id
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification classe / année
+        |--------------------------------------------------------------------------
+        */
+        if (
+            $classRoom->school_year_id &&
+            (int) $classRoom->school_year_id !==
+            (int) $schoolYear->id
+        ) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'class_room_id' =>
+                        'La classe sélectionnée ne correspond pas à l’année scolaire.'
+                ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification doublon
+        |--------------------------------------------------------------------------
+        */
+        $duplicate = Inscription::query()
+            ->where(
+                'establishment_id',
+                $establishment->id
+            )
+            ->where(
+                'student_id',
+                $validated['student_id']
+            )
+            ->where(
+                'school_year_id',
+                $validated['school_year_id']
+            )
+            ->where(
+                'id',
+                '!=',
+                $inscription->id
+            )
+            ->exists();
+
+        if ($duplicate) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'student_id' =>
+                        'Cet étudiant possède déjà une inscription pour cette année scolaire.'
+                ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Mise à jour
+        |--------------------------------------------------------------------------
+        */
+        $inscription->school_year_id =
+            $validated['school_year_id'];
+
+        $inscription->class_room_id =
+            $validated['class_room_id'];
+
+        $inscription->student_id =
+            $validated['student_id'];
+
+        if (
+            \Schema::hasColumn(
+                'inscriptions',
+                'date_inscription'
+            )
+        ) {
+            $inscription->date_inscription =
+                $validated['date_inscription']
+                ?? $inscription->date_inscription;
+        }
+
+        if (
+            \Schema::hasColumn(
+                'inscriptions',
+                'statut'
+            )
+        ) {
+            $inscription->statut =
+                $validated['statut']
+                ?? $inscription->statut;
+        }
+
+        if (
+            \Schema::hasColumn(
+                'inscriptions',
+                'observation'
+            )
+        ) {
+            $inscription->observation =
+                $validated['observation']
+                ?? $inscription->observation;
+        }
+
+        $inscription->save();
+
+        return redirect()
+            ->route('inscriptions.index')
+            ->with(
+                'success',
+                'Inscription mise à jour avec succès.'
+            );
+    }
+
+    /**
+     * Supprime une inscription.
+     */
+    public function destroy(
+        Inscription $inscription
+    ) {
+        $establishment =
+            $this->currentEstablishment();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sécurité établissement
+        |--------------------------------------------------------------------------
+        */
+        if (
+            (int) $inscription->establishment_id !==
+            (int) $establishment->id
+        ) {
+            abort(
+                403,
+                'Accès non autorisé à cette inscription.'
+            );
+        }
+
+        $inscription->delete();
+
+        return redirect()
+            ->route('inscriptions.index')
+            ->with(
+                'success',
+                'Inscription supprimée avec succès.'
+            );
+    }
+}

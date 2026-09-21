@@ -1,0 +1,443 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Student;
+use App\Models\Teacher;
+use App\Models\ClassRoom;
+use App\Models\Subject;
+use App\Models\Inscription;
+use App\Models\Note;
+use App\Models\Paiement;
+use App\Models\SchoolYear;
+
+class DashboardController extends Controller
+{
+    public function index()
+    {
+        $user = auth()->user();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 1. Récupérer les établissements de l'utilisateur connecté
+        |--------------------------------------------------------------------------
+        */
+
+        $establishments = $user->establishments()
+            ->with('schoolType')
+            ->orderBy('id')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 2. Aucun établissement
+        |--------------------------------------------------------------------------
+        */
+
+        if ($establishments->isEmpty()) {
+
+            session()->forget([
+                'establishment_id',
+                'establishment_name',
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            return redirect()
+                ->route('establishments.create')
+                ->with(
+                    'warning',
+                    'Veuillez créer votre établissement avant d’accéder au tableau de bord.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 3. L'établissement doit être sélectionné
+        |--------------------------------------------------------------------------
+        |
+        | Même s'il n'y a qu'un seul établissement, l'utilisateur passe
+        | d'abord par la page "Choisir un établissement".
+        |
+        */
+
+        $establishmentId = session('establishment_id');
+
+        if (!$establishmentId) {
+
+            return redirect()
+                ->route('establishments.choose');
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 4. Vérifier que l'établissement appartient à l'utilisateur
+        |--------------------------------------------------------------------------
+        */
+
+        $establishment = $establishments->firstWhere(
+            'id',
+            (int) $establishmentId
+        );
+
+        if (!$establishment) {
+
+            session()->forget([
+                'establishment_id',
+                'establishment_name',
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            return redirect()
+                ->route('establishments.choose')
+                ->with(
+                    'error',
+                    'L’établissement sélectionné est invalide.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 5. Synchroniser l'établissement courant
+        |--------------------------------------------------------------------------
+        */
+
+        session([
+            'establishment_id'   => $establishment->id,
+            'establishment_name' => $establishment->nom,
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | 6. Type d'établissement
+        |--------------------------------------------------------------------------
+        */
+
+        $schoolType = $establishment->schoolType;
+
+        /*
+        |--------------------------------------------------------------------------
+        | 7. Année scolaire sélectionnée
+        |--------------------------------------------------------------------------
+        */
+
+        $schoolYearId = session('school_year_id');
+
+        $schoolYear = null;
+
+        if ($schoolYearId) {
+
+            $schoolYear = SchoolYear::query()
+                ->where('id', $schoolYearId)
+                ->where('establishment_id', $establishment->id)
+                ->first();
+
+            /*
+            |--------------------------------------------------------------------------
+            | L'année scolaire ne correspond pas à l'établissement courant
+            |--------------------------------------------------------------------------
+            */
+
+            if (!$schoolYear) {
+
+                session()->forget([
+                    'school_year_id',
+                    'school_year_name',
+                ]);
+
+                $schoolYearId = null;
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 8. Récupérer l'année scolaire active
+        |--------------------------------------------------------------------------
+        */
+
+        if (!$schoolYearId) {
+
+            $schoolYear = SchoolYear::query()
+                ->where('establishment_id', $establishment->id)
+                ->where('is_active', true)
+                ->orderByDesc('start_date')
+                ->first();
+
+            if ($schoolYear) {
+
+                session([
+                    'school_year_id'   => $schoolYear->id,
+                    'school_year_name' => $schoolYear->name,
+                ]);
+
+                $schoolYearId = $schoolYear->id;
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | 9. Nombre d'établissements
+        |--------------------------------------------------------------------------
+        */
+
+        $establishmentCount = $establishments->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 10. Nombre d'étudiants
+        |--------------------------------------------------------------------------
+        */
+
+        $studentCount = Student::query()
+            ->where('establishment_id', $establishment->id)
+            ->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 11. Nombre d'enseignants
+        |--------------------------------------------------------------------------
+        */
+
+        $teacherCount = Teacher::query()
+            ->where('establishment_id', $establishment->id)
+            ->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 12. Nombre de classes
+        |--------------------------------------------------------------------------
+        */
+
+        $classRoomCount = ClassRoom::query()
+            ->where('establishment_id', $establishment->id)
+            ->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 13. Nombre de matières
+        |--------------------------------------------------------------------------
+        */
+
+        $subjectCount = Subject::query()
+            ->where('establishment_id', $establishment->id)
+            ->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 14. Nombre d'inscriptions
+        |--------------------------------------------------------------------------
+        */
+
+        $inscriptionQuery = Inscription::query()
+            ->where('establishment_id', $establishment->id);
+
+        if ($schoolYearId) {
+            $inscriptionQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $inscriptionCount = $inscriptionQuery->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 15. Nombre de notes
+        |--------------------------------------------------------------------------
+        */
+
+        $noteQuery = Note::query()
+            ->where('establishment_id', $establishment->id);
+
+        if ($schoolYearId) {
+            $noteQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $noteCount = $noteQuery->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 16. Nombre de paiements
+        |--------------------------------------------------------------------------
+        |
+        | Paiement ne possède pas encore establishment_id.
+        | L'isolation passe par student.establishment_id.
+        |
+        */
+
+        $paiementQuery = Paiement::query()
+            ->whereHas('student', function ($query) use ($establishment) {
+                $query->where(
+                    'establishment_id',
+                    $establishment->id
+                );
+            });
+
+        $paiementCount = $paiementQuery->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 17. Toutes les années scolaires de l'établissement
+        |--------------------------------------------------------------------------
+        */
+
+        $schoolYears = SchoolYear::query()
+            ->where('establishment_id', $establishment->id)
+            ->orderByDesc('start_date')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 18. Classes de l'établissement
+        |--------------------------------------------------------------------------
+        */
+
+        $classRooms = ClassRoom::query()
+            ->where('establishment_id', $establishment->id)
+            ->with('teacher')
+            ->orderBy('nom_classe')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 19. Inscriptions récentes
+        |--------------------------------------------------------------------------
+        */
+
+        $recentInscriptionsQuery = Inscription::query()
+            ->where('establishment_id', $establishment->id)
+            ->with([
+                'student',
+                'classRoom',
+                'schoolYear',
+            ])
+            ->latest('date_inscription');
+
+        if ($schoolYearId) {
+            $recentInscriptionsQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $recentInscriptions = $recentInscriptionsQuery
+            ->limit(10)
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 20. Notes récentes
+        |--------------------------------------------------------------------------
+        */
+
+        $recentNotesQuery = Note::query()
+            ->where('establishment_id', $establishment->id)
+            ->with([
+                'student',
+                'subject',
+                'classRoom',
+                'schoolYear',
+            ])
+            ->latest();
+
+        if ($schoolYearId) {
+            $recentNotesQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $recentNotes = $recentNotesQuery
+            ->limit(10)
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 21. Paiements récents
+        |--------------------------------------------------------------------------
+        */
+
+        $recentPaiements = Paiement::query()
+            ->whereHas('student', function ($query) use ($establishment) {
+                $query->where(
+                    'establishment_id',
+                    $establishment->id
+                );
+            })
+            ->with('student')
+            ->latest('date_paiement')
+            ->limit(10)
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 22. Répartition des inscriptions par mois
+        |--------------------------------------------------------------------------
+        */
+
+        $inscriptionsByMonthQuery = Inscription::query()
+            ->where('establishment_id', $establishment->id)
+            ->whereNotNull('date_inscription');
+
+        if ($schoolYearId) {
+            $inscriptionsByMonthQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        $inscriptionsByMonth = $inscriptionsByMonthQuery
+            ->selectRaw(
+                'MONTH(date_inscription) as month, COUNT(*) as total'
+            )
+            ->groupByRaw('MONTH(date_inscription)')
+            ->orderByRaw('MONTH(date_inscription)')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 23. Répartition des classes par niveau
+        |--------------------------------------------------------------------------
+        */
+
+        $classesByLevel = ClassRoom::query()
+            ->where('establishment_id', $establishment->id)
+            ->selectRaw('niveau, COUNT(*) as total')
+            ->groupBy('niveau')
+            ->orderBy('niveau')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | 24. Données du Dashboard
+        |--------------------------------------------------------------------------
+        */
+
+        return view('dashboard', compact(
+            'user',
+            'establishments',
+            'establishment',
+            'establishmentCount',
+            'schoolType',
+            'schoolYear',
+            'schoolYears',
+            'studentCount',
+            'teacherCount',
+            'classRoomCount',
+            'subjectCount',
+            'inscriptionCount',
+            'noteCount',
+            'paiementCount',
+            'classRooms',
+            'recentInscriptions',
+            'recentNotes',
+            'recentPaiements',
+            'inscriptionsByMonth',
+            'classesByLevel'
+        ));
+    }
+}

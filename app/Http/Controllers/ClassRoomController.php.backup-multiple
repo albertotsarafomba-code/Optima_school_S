@@ -1,0 +1,1123 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\ClassRoom;
+use App\Models\ClassRoomSubject;
+use App\Models\Establishment;
+use App\Models\Salle;
+use App\Models\SchoolYear;
+use App\Models\Subject;
+use App\Models\Teacher;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
+
+class ClassRoomController extends Controller
+{
+    /**
+     * Liste des classes.
+     */
+    public function index(Request $request): View
+    {
+        $establishmentId = session('establishment_id');
+
+        abort_unless($establishmentId, 403);
+
+        $search = trim((string) $request->input('search'));
+        $schoolYearId = $request->input('school_year_id');
+
+        $establishment = Establishment::query()
+            ->with('schoolType')
+            ->findOrFail($establishmentId);
+
+        $schoolYears = SchoolYear::query()
+            ->where('establishment_id', $establishmentId)
+            ->orderByDesc('is_active')
+            ->orderByDesc('start_date')
+            ->get();
+
+        $classRoomsQuery = ClassRoom::query()
+            ->where('establishment_id', $establishmentId)
+            ->with([
+                'teacher',
+                'room',
+                'schoolYear',
+            ])
+            ->withCount([
+                'inscriptions as effectif_actuel' => function ($query) {
+                    $query->where('statut', 'Active');
+                },
+                'subjects as subjects_count',
+            ]);
+
+        if ($schoolYearId !== null && $schoolYearId !== '') {
+            $classRoomsQuery->where(
+                'school_year_id',
+                $schoolYearId
+            );
+        }
+
+        if ($search !== '') {
+            $classRoomsQuery->where(function ($query) use ($search) {
+                $query
+                    ->where('nom_classe', 'like', '%' . $search . '%')
+                    ->orWhere('niveau', 'like', '%' . $search . '%')
+                    ->orWhere('filiere', 'like', '%' . $search . '%')
+                    ->orWhere('salle', 'like', '%' . $search . '%');
+            });
+        }
+
+        $classRooms = $classRoomsQuery
+            ->orderBy('niveau')
+            ->orderBy('nom_classe')
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Préparation des données pour la vue
+        |--------------------------------------------------------------------------
+        */
+        $classRooms->each(function ($classRoom) {
+
+            $classRoom->effectif_actuel =
+                (int) ($classRoom->effectif_actuel ?? 0);
+
+            $classRoom->capacite_reelle =
+                (int) (
+                    $classRoom->capacite
+                    ?? $classRoom->effectif_maximum
+                    ?? 0
+                );
+
+            if (
+                empty($classRoom->salle) &&
+                $classRoom->room
+            ) {
+                $classRoom->salle =
+                    $classRoom->room->nom;
+            }
+
+            if (
+                empty($classRoom->annee_scolaire) &&
+                $classRoom->schoolYear
+            ) {
+                $classRoom->annee_scolaire =
+                    $classRoom->schoolYear->name;
+            }
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Alias utilisé par certaines vues existantes
+        |--------------------------------------------------------------------------
+        */
+        $classes = $classRooms;
+
+        return view(
+            'classes.index',
+            compact(
+                'classes',
+                'classRooms',
+                'schoolYears',
+                'schoolYearId',
+                'search',
+                'establishment'
+            )
+        );
+    }
+
+
+    /**
+     * Formulaire de création d'une classe.
+     */
+    public function create(): View
+    {
+        $establishmentId = session('establishment_id');
+
+        abort_unless($establishmentId, 403);
+
+        $establishment = Establishment::query()
+            ->with('schoolType')
+            ->findOrFail($establishmentId);
+
+        $schoolYears = SchoolYear::query()
+            ->where('establishment_id', $establishmentId)
+            ->orderByDesc('is_active')
+            ->orderByDesc('start_date')
+            ->get();
+
+        $salles = Salle::query()
+            ->where('establishment_id', $establishmentId)
+            ->orderBy('nom')
+            ->get();
+
+        $teachers = Teacher::query()
+            ->where('establishment_id', $establishmentId)
+            ->orderBy('nom')
+            ->orderBy('prenom')
+            ->get();
+
+        $typeName = $this->getSchoolTypeName(
+            $establishment
+        );
+
+        $niveaux = $this->getNiveaux(
+            $typeName
+        );
+
+        return view(
+            'classes.create',
+            compact(
+                'establishment',
+                'schoolYears',
+                'salles',
+                'teachers',
+                'typeName',
+                'niveaux'
+            )
+        );
+    }
+
+
+    /**
+     * Enregistrement d'une classe.
+     */
+    public function store(
+        Request $request
+    ): RedirectResponse {
+
+        $establishmentId =
+            session('establishment_id');
+
+        abort_unless($establishmentId, 403);
+
+        $establishment = Establishment::query()
+            ->with('schoolType')
+            ->findOrFail($establishmentId);
+
+        $typeName =
+            $this->getSchoolTypeName(
+                $establishment
+            );
+
+        $niveaux =
+            $this->getNiveaux(
+                $typeName
+            );
+
+        $isUniversite =
+            $typeName === 'université';
+
+        $rules = [
+            'niveau' => [
+                'required',
+                'string',
+                Rule::in($niveaux),
+            ],
+
+            'school_year_id' => [
+                'required',
+                'integer',
+                'exists:school_years,id',
+            ],
+
+            'salle_id' => [
+                'nullable',
+                'integer',
+                'exists:salles,id',
+            ],
+
+            'teacher_id' => [
+                'nullable',
+                'integer',
+                'exists:teachers,id',
+            ],
+
+            'annee_scolaire' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+
+            'capacite' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:10000',
+            ],
+
+            'effectif_minimum' => [
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+
+            'effectif_maximum' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:10000',
+            ],
+        ];
+
+        if ($isUniversite) {
+            $rules['filiere'] = [
+                'required',
+                'string',
+                'max:150',
+            ];
+        }
+
+        $validated = $request->validate(
+            $rules,
+            [
+                'niveau.required' =>
+                    'Le niveau est obligatoire.',
+
+                'niveau.in' =>
+                    'Le niveau sélectionné est invalide.',
+
+                'school_year_id.required' =>
+                    "L'année scolaire est obligatoire.",
+
+                'school_year_id.exists' =>
+                    "L'année scolaire sélectionnée est invalide.",
+
+                'salle_id.exists' =>
+                    'La salle sélectionnée est invalide.',
+
+                'teacher_id.exists' =>
+                    "L'enseignant sélectionné est invalide.",
+
+                'filiere.required' =>
+                    'La filière est obligatoire pour une université.',
+
+                'capacite.integer' =>
+                    'La capacité doit être un nombre entier.',
+
+                'effectif_minimum.integer' =>
+                    "L'effectif minimum doit être un nombre entier.",
+
+                'effectif_maximum.integer' =>
+                    "L'effectif maximum doit être un nombre entier.",
+            ]
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification année scolaire
+        |--------------------------------------------------------------------------
+        */
+        $schoolYear = SchoolYear::query()
+            ->where('id', $validated['school_year_id'])
+            ->where(
+                'establishment_id',
+                $establishmentId
+            )
+            ->firstOrFail();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification salle
+        |--------------------------------------------------------------------------
+        */
+        $salle = null;
+
+        if (!empty($validated['salle_id'])) {
+            $salle = Salle::query()
+                ->where('id', $validated['salle_id'])
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->firstOrFail();
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification enseignant
+        |--------------------------------------------------------------------------
+        */
+        if (!empty($validated['teacher_id'])) {
+            Teacher::query()
+                ->where('id', $validated['teacher_id'])
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->firstOrFail();
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Filière
+        |--------------------------------------------------------------------------
+        */
+        $filiere = null;
+
+        if ($isUniversite) {
+            $filiere =
+                trim(
+                    (string) (
+                        $validated['filiere'] ?? ''
+                    )
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Nom automatique de la classe
+        |--------------------------------------------------------------------------
+        */
+        $niveau =
+            trim(
+                $validated['niveau']
+            );
+
+        if ($isUniversite) {
+            $nomClasse =
+                $niveau . ' - ' . $filiere;
+        } else {
+            $nomClasse =
+                $niveau;
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification capacité
+        |--------------------------------------------------------------------------
+        */
+        $capacite =
+            $validated['capacite']
+            ?? $validated['effectif_maximum']
+            ?? null;
+
+        $effectifMaximum =
+            $validated['effectif_maximum']
+            ?? $capacite
+            ?? null;
+
+        $effectifMinimum =
+            $validated['effectif_minimum']
+            ?? 0;
+
+        if (
+            $effectifMaximum !== null &&
+            $effectifMinimum > $effectifMaximum
+        ) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'effectif_minimum' =>
+                        "L'effectif minimum ne peut pas être supérieur à l'effectif maximum.",
+                ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification doublon
+        |--------------------------------------------------------------------------
+        */
+        $duplicateQuery = ClassRoom::query()
+            ->where(
+                'establishment_id',
+                $establishmentId
+            )
+            ->where(
+                'school_year_id',
+                $schoolYear->id
+            )
+            ->where(
+                'niveau',
+                $niveau
+            );
+
+        if ($isUniversite) {
+            $duplicateQuery
+                ->where(
+                    'filiere',
+                    $filiere
+                );
+        }
+
+        if ($duplicateQuery->exists()) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'niveau' =>
+                        'Cette classe existe déjà pour cette année scolaire.',
+                ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Création
+        |--------------------------------------------------------------------------
+        */
+        ClassRoom::create([
+            'establishment_id' =>
+                $establishmentId,
+
+            'nom_classe' =>
+                $nomClasse,
+
+            'niveau' =>
+                $niveau,
+
+            'filiere' =>
+                $filiere,
+
+            'school_year_id' =>
+                $schoolYear->id,
+
+            'salle_id' =>
+                $salle?->id,
+
+            'teacher_id' =>
+                $validated['teacher_id'] ?? null,
+
+            'annee_scolaire' =>
+                $validated['annee_scolaire']
+                ?? $schoolYear->name,
+
+            'salle' =>
+                $salle?->nom,
+
+            'capacite' =>
+                $capacite,
+
+            'effectif_minimum' =>
+                $effectifMinimum,
+
+            'effectif_maximum' =>
+                $effectifMaximum,
+        ]);
+
+        return redirect()
+            ->route('class_rooms.index')
+            ->with(
+                'success',
+                'La classe a été créée avec succès.'
+            );
+    }
+
+
+    /**
+     * Affichage d'une classe.
+     */
+    public function show(
+        ClassRoom $classRoom
+    ): View {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vérification établissement
+        |--------------------------------------------------------------------------
+        */
+        $this->authorizeEstablishment(
+            $classRoom
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Chargement des relations
+        |--------------------------------------------------------------------------
+        */
+        $classRoom->load([
+            'establishment',
+            'teacher',
+            'room',
+            'schoolYear',
+            'inscriptions.student',
+            'inscriptions.schoolYear',
+            'subjects',
+            'classRoomSubjects.subject',
+            'teacherSubjects.teacher',
+        ]);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Étudiants actifs
+        |--------------------------------------------------------------------------
+        */
+        $students = $classRoom
+            ->inscriptions
+            ->filter(function ($inscription) {
+
+                if (
+                    $inscription->student === null
+                ) {
+                    return false;
+                }
+
+                $statut = strtolower(
+                    trim(
+                        (string)
+                        $inscription->statut
+                    )
+                );
+
+                return $statut === 'active';
+            })
+            ->values();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Effectif actuel
+        |--------------------------------------------------------------------------
+        */
+        $effectifActuel =
+            $students->count();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Vue
+        |--------------------------------------------------------------------------
+        */
+        return view(
+            'classes.show',
+            compact(
+                'classRoom',
+                'students',
+                'effectifActuel'
+            )
+        );
+    }
+
+
+    /**
+     * Formulaire de modification.
+     */
+    public function edit(
+        ClassRoom $classRoom
+    ): View {
+
+        $this->authorizeEstablishment(
+            $classRoom
+        );
+
+        $establishmentId =
+            session('establishment_id');
+
+        $establishment =
+            Establishment::query()
+                ->with('schoolType')
+                ->findOrFail(
+                    $establishmentId
+                );
+
+        $schoolYears =
+            SchoolYear::query()
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->orderByDesc('is_active')
+                ->orderByDesc('start_date')
+                ->get();
+
+        $salles =
+            Salle::query()
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->orderBy('nom')
+                ->get();
+
+        $teachers =
+            Teacher::query()
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->orderBy('nom')
+                ->orderBy('prenom')
+                ->get();
+
+        $typeName =
+            $this->getSchoolTypeName(
+                $establishment
+            );
+
+        $niveaux =
+            $this->getNiveaux(
+                $typeName
+            );
+
+        return view(
+            'classes.edit',
+            compact(
+                'classRoom',
+                'establishment',
+                'schoolYears',
+                'salles',
+                'teachers',
+                'typeName',
+                'niveaux'
+            )
+        );
+    }
+
+
+    /**
+     * Mise à jour d'une classe.
+     */
+    public function update(
+        Request $request,
+        ClassRoom $classRoom
+    ): RedirectResponse {
+
+        $this->authorizeEstablishment(
+            $classRoom
+        );
+
+        $establishmentId =
+            session('establishment_id');
+
+        $establishment =
+            Establishment::query()
+                ->with('schoolType')
+                ->findOrFail(
+                    $establishmentId
+                );
+
+        $typeName =
+            $this->getSchoolTypeName(
+                $establishment
+            );
+
+        $niveaux =
+            $this->getNiveaux(
+                $typeName
+            );
+
+        $isUniversite =
+            $typeName === 'université';
+
+        $rules = [
+            'niveau' => [
+                'required',
+                'string',
+                Rule::in($niveaux),
+            ],
+
+            'school_year_id' => [
+                'required',
+                'integer',
+                'exists:school_years,id',
+            ],
+
+            'salle_id' => [
+                'nullable',
+                'integer',
+                'exists:salles,id',
+            ],
+
+            'teacher_id' => [
+                'nullable',
+                'integer',
+                'exists:teachers,id',
+            ],
+
+            'annee_scolaire' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+
+            'capacite' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:10000',
+            ],
+
+            'effectif_minimum' => [
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+
+            'effectif_maximum' => [
+                'nullable',
+                'integer',
+                'min:1',
+                'max:10000',
+            ],
+        ];
+
+        if ($isUniversite) {
+            $rules['filiere'] = [
+                'required',
+                'string',
+                'max:150',
+            ];
+        }
+
+        $validated = $request->validate(
+            $rules,
+            [
+                'niveau.required' =>
+                    'Le niveau est obligatoire.',
+
+                'niveau.in' =>
+                    'Le niveau sélectionné est invalide.',
+
+                'school_year_id.required' =>
+                    "L'année scolaire est obligatoire.",
+
+                'school_year_id.exists' =>
+                    "L'année scolaire sélectionnée est invalide.",
+
+                'salle_id.exists' =>
+                    'La salle sélectionnée est invalide.',
+
+                'teacher_id.exists' =>
+                    "L'enseignant sélectionné est invalide.",
+
+                'filiere.required' =>
+                    'La filière est obligatoire pour une université.',
+            ]
+        );
+
+        $schoolYear =
+            SchoolYear::query()
+                ->where(
+                    'id',
+                    $validated['school_year_id']
+                )
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->firstOrFail();
+
+        $salle = null;
+
+        if (!empty($validated['salle_id'])) {
+            $salle =
+                Salle::query()
+                    ->where(
+                        'id',
+                        $validated['salle_id']
+                    )
+                    ->where(
+                        'establishment_id',
+                        $establishmentId
+                    )
+                    ->firstOrFail();
+        }
+
+        if (!empty($validated['teacher_id'])) {
+            Teacher::query()
+                ->where(
+                    'id',
+                    $validated['teacher_id']
+                )
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->firstOrFail();
+        }
+
+        $niveau =
+            trim(
+                $validated['niveau']
+            );
+
+        $filiere = null;
+
+        if ($isUniversite) {
+            $filiere =
+                trim(
+                    (string)
+                    ($validated['filiere'] ?? '')
+                );
+        }
+
+        if ($isUniversite) {
+            $nomClasse =
+                $niveau . ' - ' . $filiere;
+        } else {
+            $nomClasse =
+                $niveau;
+        }
+
+        $capacite =
+            $validated['capacite']
+            ?? $validated['effectif_maximum']
+            ?? null;
+
+        $effectifMaximum =
+            $validated['effectif_maximum']
+            ?? $capacite
+            ?? null;
+
+        $effectifMinimum =
+            $validated['effectif_minimum']
+            ?? 0;
+
+        if (
+            $effectifMaximum !== null &&
+            $effectifMinimum > $effectifMaximum
+        ) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'effectif_minimum' =>
+                        "L'effectif minimum ne peut pas être supérieur à l'effectif maximum.",
+                ]);
+        }
+
+        $duplicateQuery =
+            ClassRoom::query()
+                ->where(
+                    'establishment_id',
+                    $establishmentId
+                )
+                ->where(
+                    'school_year_id',
+                    $schoolYear->id
+                )
+                ->where(
+                    'niveau',
+                    $niveau
+                )
+                ->where(
+                    'id',
+                    '!=',
+                    $classRoom->id
+                );
+
+        if ($isUniversite) {
+            $duplicateQuery->where(
+                'filiere',
+                $filiere
+            );
+        }
+
+        if ($duplicateQuery->exists()) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'niveau' =>
+                        'Cette classe existe déjà pour cette année scolaire.',
+                ]);
+        }
+
+        $classRoom->update([
+            'nom_classe' =>
+                $nomClasse,
+
+            'niveau' =>
+                $niveau,
+
+            'filiere' =>
+                $filiere,
+
+            'school_year_id' =>
+                $schoolYear->id,
+
+            'salle_id' =>
+                $salle?->id,
+
+            'teacher_id' =>
+                $validated['teacher_id'] ?? null,
+
+            'annee_scolaire' =>
+                $validated['annee_scolaire']
+                ?? $schoolYear->name,
+
+            'salle' =>
+                $salle?->nom,
+
+            'capacite' =>
+                $capacite,
+
+            'effectif_minimum' =>
+                $effectifMinimum,
+
+            'effectif_maximum' =>
+                $effectifMaximum,
+        ]);
+
+        return redirect()
+            ->route(
+                'class_rooms.index'
+            )
+            ->with(
+                'success',
+                'La classe a été modifiée avec succès.'
+            );
+    }
+
+
+    /**
+     * Suppression d'une classe.
+     */
+    public function destroy(
+        ClassRoom $classRoom
+    ): RedirectResponse {
+
+        $this->authorizeEstablishment(
+            $classRoom
+        );
+
+        $hasInscriptions =
+            $classRoom
+                ->inscriptions()
+                ->exists();
+
+        if ($hasInscriptions) {
+            return redirect()
+                ->route(
+                    'class_rooms.index'
+                )
+                ->with(
+                    'error',
+                    'Impossible de supprimer cette classe car elle contient des inscriptions.'
+                );
+        }
+
+        DB::transaction(
+            function () use ($classRoom) {
+
+                ClassRoomSubject::query()
+                    ->where(
+                        'class_room_id',
+                        $classRoom->id
+                    )
+                    ->delete();
+
+                $classRoom
+                    ->delete();
+            }
+        );
+
+        return redirect()
+            ->route(
+                'class_rooms.index'
+            )
+            ->with(
+                'success',
+                'La classe a été supprimée avec succès.'
+            );
+    }
+
+
+    /**
+     * Vérification de l'établissement de la classe.
+     */
+    private function authorizeEstablishment(
+        ClassRoom $classRoom
+    ): void {
+
+        abort_unless(
+            session('establishment_id') &&
+            (int) $classRoom->establishment_id ===
+            (int) session('establishment_id'),
+            403
+        );
+    }
+
+
+    /**
+     * Nom du type d'établissement.
+     */
+    private function getSchoolTypeName(
+        Establishment $establishment
+    ): string {
+
+        $name =
+            $establishment
+                ->schoolType
+                ?->nom
+            ??
+            $establishment
+                ->schoolType
+                ?->name
+            ??
+            '';
+
+        $name =
+            mb_strtolower(
+                trim($name)
+            );
+
+        return match ($name) {
+            'primaire',
+            'école primaire',
+            'ecole primaire'
+                => 'primaire',
+
+            'collège',
+            'college'
+                => 'collège',
+
+            'lycée',
+            'lycee'
+                => 'lycée',
+
+            'université',
+            'universite'
+                => 'université',
+
+            default =>
+                $name,
+        };
+    }
+
+
+    /**
+     * Niveaux disponibles selon le type d'établissement.
+     */
+    private function getNiveaux(
+        string $typeName
+    ): array {
+
+        return match ($typeName) {
+
+            'primaire' => [
+                'CP1',
+                'CP2',
+                'CE1',
+                'CE2',
+                'CM1',
+                'CM2',
+            ],
+
+            'collège' => [
+                '6ème',
+                '5ème',
+                '4ème',
+                '3ème',
+            ],
+
+            'lycée' => [
+                'Seconde',
+                'Première',
+                'Terminale',
+            ],
+
+            'université' => [
+                'L1',
+                'L2',
+                'L3',
+                'M1',
+                'M2',
+                'Doctorat',
+            ],
+
+            default => [],
+        };
+    }
+}
