@@ -1501,7 +1501,7 @@
                 <p class="page-description">
                     Sélectionnez l'établissement que vous souhaitez gérer.
                 </p>
-            
+
             </div>
 
 

@@ -125,7 +125,7 @@
             <span class="w-fit rounded-full bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-800">{{ $classRooms->count() }} classe(s)</span>
         </div>
 
-        
+
         {{-- Filtres indépendants des classes --}}
         <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2"
              data-salle-filter-panel="classes">
@@ -212,7 +212,7 @@
             <span class="w-fit rounded-full bg-green-50 px-3 py-1.5 text-sm font-bold text-green-800">{{ $emplois->count() }} créneau(x)</span>
         </div>
 
-        
+
         {{-- Filtres indépendants de l'emploi du temps --}}
         <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2 xl:grid-cols-4"
              data-salle-filter-panel="planning">
@@ -312,7 +312,7 @@
                 <span class="rounded-full bg-purple-50 px-3 py-1.5 text-sm font-bold text-purple-800">{{ $students->count() }}</span>
             </div>
 
-            
+
                 {{-- Filtres indépendants des élèves --}}
                 <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2"
                      data-salle-filter-panel="students">
@@ -378,7 +378,7 @@
                 <span class="rounded-full bg-amber-50 px-3 py-1.5 text-sm font-bold text-amber-800">{{ $totalTeachers }}</span>
             </div>
 
-            
+
                 {{-- Filtres indépendants des enseignants --}}
                 <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-3"
                      data-salle-filter-panel="teachers">
@@ -458,7 +458,7 @@
         <h2 class="text-lg font-extrabold text-slate-900">Matières programmées dans cette salle</h2>
         <p class="mt-1 text-sm text-slate-500">Liste dédupliquée à partir de l'emploi du temps.</p>
 
-        
+
         {{-- Filtres indépendants des matières programmées --}}
         <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2"
              data-salle-filter-panel="subjects">
