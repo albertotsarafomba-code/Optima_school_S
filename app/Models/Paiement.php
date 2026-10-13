@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\User;
+
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -21,6 +23,14 @@ class Paiement extends Model
         'reference',
         'numero_recu',
         'description',
+
+        // Vérification du paiement
+        'statut_verification',
+        'preuve_paiement',
+        'preuve_type',
+        'verifie_par',
+        'verifie_le',
+        'note_verification',
     ];
 
     protected $casts = [
@@ -28,6 +38,7 @@ class Paiement extends Model
         'date_paiement' => 'date',
         'mois' => 'integer',
         'annee' => 'integer',
+        'verifie_le' => 'datetime',
     ];
 
     /**
@@ -60,6 +71,17 @@ class Paiement extends Model
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(Teacher::class);
+    }
+
+    /**
+     * Utilisateur ayant vérifié le paiement.
+     */
+    public function verifiePar(): BelongsTo
+    {
+        return $this->belongsTo(
+            User::class,
+            'verifie_par'
+        );
     }
 
     /**

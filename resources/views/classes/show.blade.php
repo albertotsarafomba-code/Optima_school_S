@@ -415,11 +415,7 @@
 
                     <tbody class="divide-y divide-gray-100">
 
-                        @foreach($students as $inscription)
-
-                            @php
-                                $student = $inscription->student;
-                            @endphp
+                        @foreach($students as $student)
 
                             @if($student)
 

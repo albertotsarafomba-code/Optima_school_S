@@ -127,6 +127,47 @@ class TeacherSubjectController extends Controller
 
         $establishmentId = $this->establishmentId();
 
+        $schoolYearId = session('school_year_id');
+
+        if (!$schoolYearId) {
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'Veuillez sélectionner une année scolaire.'
+                );
+        }
+
+        $schoolYear = SchoolYear::query()
+            ->where(
+                'id',
+                $schoolYearId
+            )
+            ->where(
+                'establishment_id',
+                $establishmentId
+            )
+            ->first();
+
+        if (!$schoolYear) {
+            session()->forget([
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'L’année scolaire sélectionnée est invalide.'
+                );
+        }
+
+        session([
+            'school_year_id' => $schoolYear->id,
+            'school_year_name' => $schoolYear->name,
+        ]);
+
         $assignments = TeacherSubject::query()
             ->with([
                 'teacher',
@@ -134,6 +175,10 @@ class TeacherSubjectController extends Controller
                 'classRoom',
                 'schoolYear',
             ])
+            ->where(
+                'school_year_id',
+                $schoolYear->id
+            )
             ->whereHas(
                 'teacher',
                 function ($query) use ($establishmentId) {
@@ -170,14 +215,16 @@ class TeacherSubjectController extends Controller
                     );
                 }
             )
-            ->orderByDesc('school_year_id')
             ->orderBy('teacher_id')
             ->orderBy('class_room_id')
             ->get();
 
         return view(
             'teacher_subjects.index',
-            compact('assignments')
+            compact(
+                'assignments',
+                'schoolYear'
+            )
         );
     }
 
@@ -696,6 +743,20 @@ class TeacherSubjectController extends Controller
             $authorizedYear,
             403,
             'Cette affectation n’appartient pas à votre établissement.'
+        );
+
+        /**
+         * Une affectation ne peut être supprimée
+         * que pour l'année scolaire actuellement sélectionnée.
+         */
+        $currentSchoolYearId = session('school_year_id');
+
+        abort_unless(
+            $currentSchoolYearId &&
+            (int) $teacherSubject->school_year_id ===
+                (int) $currentSchoolYearId,
+            403,
+            'Cette affectation appartient à une autre année scolaire.'
         );
 
         $teacherSubject->delete();

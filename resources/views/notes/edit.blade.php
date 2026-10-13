@@ -363,14 +363,14 @@
 
                         @forelse($subjects as $subject)
 
-                            <option value="{{ $subject->id }}"
-                                {{ (int) old('subject_id', $note->subject_id) === (int) $subject->id ? 'selected' : '' }}>
+                            <option value="{{ $subject['id'] }}"
+                                {{ (int) old('subject_id', $note->subject_id) === (int) $subject['id'] ? 'selected' : '' }}>
 
-                                @if($subject->code)
-                                    {{ $subject->code }} —
+                                @if($subject['code'])
+                                    {{ $subject['code'] }} —
                                 @endif
 
-                                {{ $subject->nom }}
+                                {{ $subject['nom'] }}
 
                             </option>
 

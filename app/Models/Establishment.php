@@ -19,6 +19,7 @@ class Establishment extends Model
         'adresse',
         'telephone',
         'email',
+        'logo',
     ];
 
     /**

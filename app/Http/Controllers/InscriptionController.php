@@ -161,11 +161,194 @@ class InscriptionController extends Controller
     }
 
     /**
+     * Résout l'étudiant à inscrire.
+     *
+     * - Si un student_id est fourni, on vérifie qu'il appartient
+     *   à l'établissement courant.
+     * - Sinon, on crée un nouvel étudiant.
+     *
+     * Retourne soit un Student, soit une réponse de redirection
+     * d'erreur (nom/prénom manquants).
+     */
+    private function resolveOrCreateStudent(
+        array $validated,
+        Establishment $establishment
+    ): Student|\Illuminate\Http\RedirectResponse {
+        if (!empty($validated['student_id'])) {
+            return $this->currentStudent(
+                (int) $validated['student_id']
+            );
+        }
+
+        if (
+            empty($validated['nom']) ||
+            empty($validated['prenom'])
+        ) {
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'nom' =>
+                        'Le nom et le prénom sont obligatoires pour créer un nouvel étudiant.',
+                ]);
+        }
+
+        return Student::create([
+            'establishment_id' =>
+                $establishment->id,
+
+            'matricule' =>
+                $this->generateMatricule(
+                    $establishment
+                ),
+
+            'nom' =>
+                $validated['nom'],
+
+            'prenom' =>
+                $validated['prenom'],
+
+            'date_naissance' =>
+                $validated['date_naissance']
+                ?? null,
+
+            'lieu_naissance' =>
+                $validated['lieu_naissance']
+                ?? null,
+
+            'sexe' =>
+                $validated['sexe']
+                ?? null,
+
+            'adresse' =>
+                $validated['adresse']
+                ?? null,
+
+            'telephone' =>
+                $validated['telephone']
+                ?? null,
+
+            'email' =>
+                $validated['email']
+                ?? null,
+        ]);
+    }
+
+    /**
+     * Détecte une éventuelle double inscription pour une année.
+     */
+    private function isAlreadyRegistered(
+        Student $student,
+        SchoolYear $schoolYear,
+        ?int $exceptInscriptionId = null
+    ): bool {
+        return Inscription::query()
+            ->where('student_id', $student->id)
+            ->where('school_year_id', $schoolYear->id)
+            ->when(
+                $exceptInscriptionId !== null,
+                function ($query) use (
+                    $exceptInscriptionId
+                ) {
+                    $query->where('id', '!=', $exceptInscriptionId);
+                }
+            )
+            ->exists();
+    }
+
+    /**
+     * Construit les données d'une inscription en ne conservant
+     * que les colonnes réellement présentes dans la table.
+     *
+     * @param array $overrides Champs supplémentaires à fusionner
+     *                         (utilisés par update()).
+     */
+    private function buildInscriptionData(
+        Request $request,
+        Establishment $establishment,
+        SchoolYear $schoolYear,
+        ClassRoom $classRoom,
+        Student $student,
+        array $overrides = []
+    ): array {
+        $columns = \Schema::getColumnListing(
+            'inscriptions'
+        );
+
+        $has = static fn (string $column): bool =>
+            in_array($column, $columns, true);
+
+        $data = [
+            'student_id' => $student->id,
+            'school_year_id' => $schoolYear->id,
+            'class_room_id' => $classRoom->id,
+            'annee_scolaire' => $schoolYear->name,
+        ];
+
+        if ($has('establishment_id')) {
+            $data['establishment_id'] =
+                $establishment->id;
+        }
+
+        if ($has('matricule')) {
+            $data['matricule'] =
+                $student->matricule;
+        }
+
+        if ($has('niveau_scolaire')) {
+            $data['niveau_scolaire'] =
+                $classRoom->niveau ?? null;
+        }
+
+        if ($has('situation_scolaire')) {
+            $data['situation_scolaire'] =
+                $request->input('situation_scolaire');
+        }
+
+        if ($has('date_inscription')) {
+            $data['date_inscription'] =
+                $request->input('date_inscription')
+                ?? now()->toDateString();
+        }
+
+        if ($has('statut')) {
+            $data['statut'] =
+                $request->input('statut')
+                ?? 'active';
+        }
+
+        return array_merge($data, $overrides);
+    }
+
+    /**
      * Liste des inscriptions de l'établissement courant.
      */
     public function index()
     {
         $establishment = $this->currentEstablishment();
+
+        $schoolYearId = session('school_year_id');
+
+        if (!$schoolYearId) {
+            return redirect()
+                ->route('school_years.index')
+                ->with('error', 'Veuillez sélectionner une année scolaire.');
+        }
+
+        $schoolYear = SchoolYear::query()
+            ->where('id', $schoolYearId)
+            ->where('establishment_id', $establishment->id)
+            ->first();
+
+        if (!$schoolYear) {
+            session()->forget([
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            return redirect()
+                ->route('school_years.index')
+                ->with('error', 'L’année scolaire sélectionnée est invalide.');
+        }
 
         $inscriptions = Inscription::query()
             ->with([
@@ -174,6 +357,7 @@ class InscriptionController extends Controller
                 'schoolYear',
             ])
             ->where('establishment_id', $establishment->id)
+            ->where('school_year_id', $schoolYear->id)
             ->orderByDesc('id')
             ->paginate(15);
 
@@ -233,7 +417,7 @@ class InscriptionController extends Controller
         if (!$selectedSchoolYear) {
             $selectedSchoolYear = $schoolYears
                 ->firstWhere(
-                    'active',
+                    'is_active',
                     true
                 );
         }

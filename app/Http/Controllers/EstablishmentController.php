@@ -6,6 +6,7 @@ use App\Models\Establishment;
 use App\Models\SchoolType;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class EstablishmentController extends Controller
@@ -114,20 +115,26 @@ class EstablishmentController extends Controller
      * ayant reçu une affectation.
      */
     public function index(): View
-    {
-        $this->ensureAuthenticated();
+{
+    $this->ensureAuthenticated();
 
-        $establishments = $this->accessibleEstablishmentsQuery()
-            ->with('schoolType')
-            ->orderBy('id')
-            ->get();
+    $establishments = $this->accessibleEstablishmentsQuery()
+        ->with('schoolType')
+        ->orderBy('id')
+        ->get();
 
-        return view(
-            'establishments.choose',
-            compact('establishments')
-        );
-    }
+    $schoolTypes = SchoolType::query()
+        ->orderBy('id')
+        ->get();
 
+    return view(
+        'establishments.choose',
+        compact(
+            'establishments',
+            'schoolTypes'
+        )
+    );
+}
     /**
      * Page de sélection des établissements.
      *
@@ -143,9 +150,24 @@ class EstablishmentController extends Controller
             ->orderBy('id')
             ->get();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Types d'établissement
+        |--------------------------------------------------------------------------
+        | Nécessaires pour le formulaire de modification
+        | affiché dans le modal de choose.blade.php.
+        |--------------------------------------------------------------------------
+        */
+        $schoolTypes = SchoolType::query()
+            ->orderBy('id')
+            ->get();
+
         return view(
             'establishments.choose',
-            compact('establishments')
+            compact(
+                'establishments',
+                'schoolTypes'
+            )
         );
     }
 
@@ -216,8 +238,16 @@ class EstablishmentController extends Controller
             'email' => [
                 'nullable',
                 'string',
-                'email:rfc',
+                'email',
                 'max:255',
+                'regex:/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/',
+            ],
+
+            'logo' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
             ],
         ], [
             'school_type_id.required' =>
@@ -250,8 +280,20 @@ class EstablishmentController extends Controller
             'email.email' =>
                 'Veuillez saisir une adresse email valide.',
 
+            'email.regex' =>
+                'Veuillez saisir une adresse email valide. Exemple : test@gmail.com.',
+
             'email.max' =>
                 'L’adresse email ne doit pas dépasser 255 caractères.',
+
+            'logo.image' =>
+                'Le fichier du logo doit être une image valide.',
+
+            'logo.mimes' =>
+                'Le logo doit être au format JPG, JPEG, PNG ou WEBP.',
+
+            'logo.max' =>
+                'Le logo ne doit pas dépasser 5 Mo.',
         ]);
 
         /*
@@ -269,6 +311,19 @@ class EstablishmentController extends Controller
 
         $validated['telephone'] =
             $validated['telephone'] ?? null;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Upload du logo de l'établissement.
+        |--------------------------------------------------------------------------
+        */
+        if ($request->hasFile('logo')) {
+            $validated['logo'] = $request
+                ->file('logo')
+                ->store('establishments/logos', 'public');
+        } else {
+            $validated['logo'] = null;
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -418,8 +473,16 @@ class EstablishmentController extends Controller
             'email' => [
                 'nullable',
                 'string',
-                'email:rfc',
+                'email',
                 'max:255',
+                'regex:/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/',
+            ],
+
+            'logo' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
             ],
         ], [
             'school_type_id.required' =>
@@ -440,8 +503,20 @@ class EstablishmentController extends Controller
             'email.email' =>
                 'Veuillez saisir une adresse email valide.',
 
+            'email.regex' =>
+                'Veuillez saisir une adresse email valide. Exemple : test@gmail.com.',
+
             'email.max' =>
                 'L’adresse email ne doit pas dépasser 255 caractères.',
+
+            'logo.image' =>
+                'Le fichier du logo doit être une image valide.',
+
+            'logo.mimes' =>
+                'Le logo doit être au format JPG, JPEG, PNG ou WEBP.',
+
+            'logo.max' =>
+                'Le logo ne doit pas dépasser 5 Mo.',
         ]);
 
         /*
@@ -455,6 +530,37 @@ class EstablishmentController extends Controller
 
         $validated['telephone'] =
             $validated['telephone'] ?? null;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Gestion du logo de l'établissement.
+        |--------------------------------------------------------------------------
+        */
+        if ($request->hasFile('logo')) {
+            $newLogo = $request
+                ->file('logo')
+                ->store('establishments/logos', 'public');
+
+            /*
+            |--------------------------------------------------------------------------
+            | Supprimer l'ancien logo après l'enregistrement du nouveau.
+            |--------------------------------------------------------------------------
+            */
+            if (!empty($establishment->logo)) {
+                Storage::disk('public')->delete(
+                    $establishment->logo
+                );
+            }
+
+            $validated['logo'] = $newLogo;
+        } else {
+            /*
+            |--------------------------------------------------------------------------
+            | Aucun nouveau logo : conserver celui existant.
+            |--------------------------------------------------------------------------
+            */
+            unset($validated['logo']);
+        }
 
         /*
         |--------------------------------------------------------------------------

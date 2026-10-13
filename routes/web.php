@@ -14,9 +14,17 @@ use App\Http\Controllers\SubjectController;
 use App\Http\Controllers\TeacherSubjectController;
 use App\Http\Controllers\InscriptionController;
 use App\Http\Controllers\NoteController;
+use App\Http\Controllers\ResultatController;
+use App\Http\Controllers\BulletinController;
 use App\Http\Controllers\PaiementController;
+use App\Http\Controllers\SuiviEcolageController;
+use App\Http\Controllers\DroitInscriptionController;
+use App\Http\Controllers\EcolageTarifController;
 use App\Http\Controllers\SalleController;
 use App\Http\Controllers\EcolageMensuelController;
+use App\Http\Controllers\EmploiDuTempsController;
+use App\Http\Controllers\ParentController;
+use App\Http\Controllers\ParentDashboardController;
 
 /*
 |--------------------------------------------------------------------------
@@ -29,6 +37,20 @@ Route::get('/', function () {
 });
 
 Route::middleware('auth')->group(function () {
+    /*
+     * ESPACE PARENT — CONSULTATION UNIQUEMENT
+     */
+    Route::middleware('role:parent')->group(function () {
+        Route::get('/parent/dashboard', [ParentDashboardController::class, 'index'])
+            ->name('parent.dashboard');
+
+        Route::get('/parent/inscriptions', [ParentDashboardController::class, 'inscriptions'])
+            ->name('parent.inscriptions');
+
+        Route::get('/parent/paiements', [ParentDashboardController::class, 'paiements'])
+            ->name('parent.paiements');
+    });
+
 
     /*
     |--------------------------------------------------------------------------
@@ -46,10 +68,6 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     | ÉTABLISSEMENTS
     |--------------------------------------------------------------------------
-    |
-    | Consultation / sélection :
-    | admin + utilisateurs affectés.
-    |
     */
 
     Route::get('/establishments/choose', [
@@ -76,6 +94,7 @@ Route::middleware('auth')->group(function () {
             EstablishmentController::class
         )->names('establishments');
 
+
         /*
         |--------------------------------------------------------------------------
         | TYPES D'ÉTABLISSEMENTS
@@ -98,6 +117,7 @@ Route::middleware('auth')->group(function () {
             'users',
             UserController::class
         )->names('users');
+
     });
 
 
@@ -105,21 +125,12 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     | ANNÉES SCOLAIRES
     |--------------------------------------------------------------------------
-    |
-    | Tous les utilisateurs autorisés peuvent consulter/sélectionner
-    | une année scolaire.
-    |
     */
 
+    // Sélection d'une année scolaire
     Route::middleware(
-        'role:admin,secretariat,enseignant,eleve,parent'
+        'role:admin,enseignant,parent'
     )->group(function () {
-
-        /*
-        |--------------------------------------------------------------------------
-        | Sélection de l'année scolaire
-        |--------------------------------------------------------------------------
-        */
 
         Route::post(
             '/school-years/{school_year}/select',
@@ -129,17 +140,18 @@ Route::middleware('auth')->group(function () {
             ]
         )->name('school_years.select');
 
+    });
 
-        /*
-        |--------------------------------------------------------------------------
-        | CRUD années scolaires
-        |--------------------------------------------------------------------------
-        */
+    // Gestion des années scolaires
+    Route::middleware(
+        'role:admin,secretariat'
+    )->group(function () {
 
         Route::resource(
             'school-years',
             SchoolYearController::class
         )->names('school_years');
+
     });
 
 
@@ -147,9 +159,6 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     | ACTIVATION D'UNE ANNÉE SCOLAIRE
     |--------------------------------------------------------------------------
-    |
-    | Seul l'administrateur peut activer une année scolaire.
-    |
     */
 
     Route::middleware('role:admin')->group(function () {
@@ -161,6 +170,7 @@ Route::middleware('auth')->group(function () {
                 'activate'
             ]
         )->name('school_years.activate');
+
     });
 
 
@@ -171,13 +181,14 @@ Route::middleware('auth')->group(function () {
     */
 
     Route::middleware(
-        'role:admin,secretariat,enseignant,eleve,parent'
+        'role:admin,secretariat'
     )->group(function () {
 
         Route::resource(
             'students',
             StudentController::class
         )->names('students');
+
     });
 
 
@@ -188,13 +199,14 @@ Route::middleware('auth')->group(function () {
     */
 
     Route::middleware(
-        'role:admin,secretariat,enseignant,eleve,parent'
+        'role:admin,secretariat'
     )->group(function () {
 
         Route::resource(
             'teachers',
             TeacherController::class
         )->names('teachers');
+
     });
 
 
@@ -205,7 +217,7 @@ Route::middleware('auth')->group(function () {
     */
 
     Route::middleware(
-        'role:admin,secretariat,enseignant,eleve,parent'
+        'role:admin,secretariat'
     )->group(function () {
 
         Route::resource(
@@ -228,6 +240,7 @@ Route::middleware('auth')->group(function () {
             ]
         )->name('class_rooms.subjects');
 
+
         Route::post(
             '/class-rooms/{class_room}/subjects',
             [
@@ -235,6 +248,7 @@ Route::middleware('auth')->group(function () {
                 'attachSubject'
             ]
         )->name('class_rooms.subjects.attach');
+
 
         Route::put(
             '/class-rooms/{class_room}/subjects/{subject}',
@@ -244,6 +258,7 @@ Route::middleware('auth')->group(function () {
             ]
         )->name('class_rooms.subjects.update');
 
+
         Route::delete(
             '/class-rooms/{class_room}/subjects/{subject}',
             [
@@ -251,6 +266,7 @@ Route::middleware('auth')->group(function () {
                 'detachSubject'
             ]
         )->name('class_rooms.subjects.detach');
+
     });
 
 
@@ -268,6 +284,7 @@ Route::middleware('auth')->group(function () {
             'salles',
             SalleController::class
         )->names('salles');
+
     });
 
 
@@ -278,13 +295,14 @@ Route::middleware('auth')->group(function () {
     */
 
     Route::middleware(
-        'role:admin,secretariat,enseignant,eleve,parent'
+        'role:admin,secretariat'
     )->group(function () {
 
         Route::resource(
             'subjects',
             SubjectController::class
         )->names('subjects');
+
     });
 
 
@@ -298,10 +316,26 @@ Route::middleware('auth')->group(function () {
         'role:admin,secretariat'
     )->group(function () {
 
-        Route::resource(
+        Route::get(
             'teacher-subjects',
-            TeacherSubjectController::class
-        )->names('teacher_subjects');
+            [TeacherSubjectController::class, 'index']
+        )->name('teacher_subjects.index');
+
+        Route::get(
+            'teacher-subjects/create',
+            [TeacherSubjectController::class, 'create']
+        )->name('teacher_subjects.create');
+
+        Route::post(
+            'teacher-subjects',
+            [TeacherSubjectController::class, 'store']
+        )->name('teacher_subjects.store');
+
+        Route::delete(
+            'teacher-subjects/{teacher_subject}',
+            [TeacherSubjectController::class, 'destroy']
+        )->name('teacher_subjects.destroy');
+
     });
 
 
@@ -309,9 +343,6 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     | INSCRIPTIONS
     |--------------------------------------------------------------------------
-    |
-    | Gestion administrative.
-    |
     */
 
     Route::middleware(
@@ -322,79 +353,498 @@ Route::middleware('auth')->group(function () {
             'inscriptions',
             InscriptionController::class
         )->names('inscriptions');
+
     });
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | NOTES
-    |--------------------------------------------------------------------------
-    */
-
-    Route::middleware(
-        'role:admin,secretariat,enseignant,eleve,parent'
-    )->group(function () {
-
-        Route::resource(
-            'notes',
-            NoteController::class
-        )->names('notes');
 
 
         /*
         |--------------------------------------------------------------------------
-        | Classes selon année scolaire
+        | PARENTS
         |--------------------------------------------------------------------------
+        |
+        | Gestion des comptes parents et de leurs élèves.
+        | Admin et secrétariat peuvent gérer les parents.
+        |
         */
 
-        Route::get(
-            '/notes/classes-by-school-year',
-            [
-                NoteController::class,
-                'classesBySchoolYear'
-            ]
-        )->name('notes.classes-by-school-year');
+        Route::middleware('role:admin,secretariat')->group(function () {
+
+            Route::resource('parents', ParentController::class)->names('parents');
+
+        });
 
 
         /*
-        |--------------------------------------------------------------------------
-        | Étudiants selon classe
-        |--------------------------------------------------------------------------
-        */
-
-        Route::get(
-            '/notes/students-by-class',
-            [
-                NoteController::class,
-                'studentsByClass'
-            ]
-        )->name('notes.students-by-class');
-    });
-
-
-    /*
 |--------------------------------------------------------------------------
-| PAIEMENTS
+| NOTES
+|--------------------------------------------------------------------------
+*/
+
+/*
+|--------------------------------------------------------------------------
+| NOTES
+|--------------------------------------------------------------------------
+*/
+
+/*
+|--------------------------------------------------------------------------
+| Consultation NOTES + RÉSULTATS + EMPLOI DU TEMPS
+|--------------------------------------------------------------------------
+*/
+
+/*
+|--------------------------------------------------------------------------
+| CONSULTATION NOTES
+|--------------------------------------------------------------------------
+|
+| Les Notes sont accessibles uniquement à :
+| - Administrateur
+| - Enseignant
+| - Parent
+|
+| Le secrétariat n'a aucun accès aux Notes.
 |--------------------------------------------------------------------------
 */
 
 Route::middleware(
-    'role:admin,secretariat,eleve,parent'
+    'role:admin,enseignant,parent'
 )->group(function () {
 
-    Route::resource(
-        'paiements',
-        PaiementController::class
-    )->names('paiements');
+    Route::get(
+        '/notes/classes-by-school-year',
+        [
+            NoteController::class,
+            'classesBySchoolYear'
+        ]
+    )->name('notes.classes-by-school-year');
 
     Route::get(
-        '/ecolages-mensuels',
+        '/notes/students-by-class',
         [
-            EcolageMensuelController::class,
+            NoteController::class,
+            'studentsByClass'
+        ]
+    )->name('notes.students-by-class');
+
+    Route::get(
+        '/notes/subjects-by-class',
+        [
+            NoteController::class,
+            'subjectsByClass'
+        ]
+    )->name('notes.subjects-by-class');
+
+    Route::get(
+        '/notes/teachers-by-subject',
+        [
+            NoteController::class,
+            'teachersBySubject'
+        ]
+    )->name('notes.teachers-by-subject');
+
+    Route::get(
+        '/notes',
+        [
+            NoteController::class,
             'index'
         ]
-    )->name('ecolages-mensuels.index');
+    )->name('notes.index');
+
+    Route::get(
+        '/notes/create',
+        [
+            NoteController::class,
+            'create'
+        ]
+    )->middleware('role:admin,enseignant')->name('notes.create');
+
+    Route::get(
+        '/notes/{note}',
+        [
+            NoteController::class,
+            'show'
+        ]
+    )->name('notes.show');
+
 });
+
+
+/*
+|--------------------------------------------------------------------------
+| RÉSULTATS — consultation uniquement
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(
+    'role:admin,enseignant,parent'
+)->group(function () {
+
+    Route::get(
+        '/resultats',
+        [
+            ResultatController::class,
+            'index'
+        ]
+    )->name('resultats.index');
+
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| EMPLOI DU TEMPS — consultation uniquement
+|--------------------------------------------------------------------------
+|
+| Le secrétariat doit pouvoir consulter l'emploi du temps.
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(
+    'role:admin,secretariat,enseignant,parent'
+)->group(function () {
+
+    Route::get(
+        '/emploi-du-temps',
+        [
+            EmploiDuTempsController::class,
+            'index'
+        ]
+    )->name('emploi-du-temps.index');
+
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| GESTION NOTES
+|--------------------------------------------------------------------------
+|
+| Admin, secrétariat et enseignant peuvent gérer les notes.
+| Le parent reste en consultation uniquement.
+|
+*/
+
+Route::middleware(
+    'role:admin,enseignant'
+)->group(function () {
+
+    Route::post(
+        '/notes',
+        [
+            NoteController::class,
+            'store'
+        ]
+    )->name('notes.store');
+
+    Route::get(
+        '/notes/{note}/edit',
+        [
+            NoteController::class,
+            'edit'
+        ]
+    )->name('notes.edit');
+
+    Route::put(
+        '/notes/{note}',
+        [
+            NoteController::class,
+            'update'
+        ]
+    )->name('notes.update');
+
+    Route::patch(
+        '/notes/{note}',
+        [
+            NoteController::class,
+            'update'
+        ]
+    );
+
+    Route::delete(
+        '/notes/{note}',
+        [
+            NoteController::class,
+            'destroy'
+        ]
+    )->name('notes.destroy');
+
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| EMPLOI DU TEMPS — gestion
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(
+    'role:admin,secretariat'
+)->group(function () {
+
+    Route::get(
+        '/emploi-du-temps/create',
+        [
+            EmploiDuTempsController::class,
+            'create'
+        ]
+    )->name('emploi-du-temps.create');
+
+    Route::post(
+        '/emploi-du-temps',
+        [
+            EmploiDuTempsController::class,
+            'store'
+        ]
+    )->name('emploi-du-temps.store');
+
+    Route::get(
+        '/emploi-du-temps/{emploi_du_temp}/edit',
+        [
+            EmploiDuTempsController::class,
+            'edit'
+        ]
+    )->name('emploi-du-temps.edit');
+
+    Route::put(
+        '/emploi-du-temps/{emploi_du_temp}',
+        [
+            EmploiDuTempsController::class,
+            'update'
+        ]
+    )->name('emploi-du-temps.update');
+
+    Route::patch(
+        '/emploi-du-temps/{emploi_du_temp}',
+        [
+            EmploiDuTempsController::class,
+            'update'
+        ]
+    );
+
+    Route::delete(
+        '/emploi-du-temps/{emploi_du_temp}',
+        [
+            EmploiDuTempsController::class,
+            'destroy'
+        ]
+    )->name('emploi-du-temps.destroy');
+
+});
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAIEMENTS
+    |--------------------------------------------------------------------------
+    */
+
+    /*
+    |--------------------------------------------------------------------------
+    | SUIVI ÉCOLAGE / PAIEMENTS
+    |--------------------------------------------------------------------------
+    |
+    | Le nouveau suivi financier utilise SuiviEcolageController.
+    | Les opérations anciennes edit/update/delete restent confiées
+    | à PaiementController afin de préserver les fonctionnalités existantes.
+    |
+    */
+
+    Route::middleware(
+        'role:admin,comptable'
+    )->group(function () {
+
+        /*
+         * ---------------------------------------------------------
+         * GESTION DES TARIFS D'ÉCOLAGE
+         * ---------------------------------------------------------
+         */
+
+        Route::get(
+            '/paiements/tarifs',
+            [
+                EcolageTarifController::class,
+                'index'
+            ]
+        )->name('paiements.tarifs.index');
+
+        Route::get(
+            '/paiements/tarifs/create',
+            [
+                EcolageTarifController::class,
+                'create'
+            ]
+        )->name('paiements.tarifs.create');
+
+        Route::post(
+            '/paiements/tarifs',
+            [
+                EcolageTarifController::class,
+                'store'
+            ]
+        )->name('paiements.tarifs.store');
+
+        Route::get(
+            '/paiements/tarifs/{ecolageTarif}/edit',
+            [
+                EcolageTarifController::class,
+                'edit'
+            ]
+        )->name('paiements.tarifs.edit');
+
+        Route::put(
+            '/paiements/tarifs/{ecolageTarif}',
+            [
+                EcolageTarifController::class,
+                'update'
+            ]
+        )->name('paiements.tarifs.update');
+
+        Route::delete(
+            '/paiements/tarifs/{ecolageTarif}',
+            [
+                EcolageTarifController::class,
+                'destroy'
+            ]
+        )->name('paiements.tarifs.destroy');
+
+
+        /*
+         * Tableau principal du suivi écolage.
+         */
+        Route::get(
+            '/paiements',
+            [
+                SuiviEcolageController::class,
+                'index'
+            ]
+        )->name('paiements.index');
+
+        /*
+         * Formulaire d'enregistrement d'un écolage.
+         */
+        Route::get(
+            '/paiements/create',
+            [
+                SuiviEcolageController::class,
+                'create'
+            ]
+        )->name('paiements.create');
+
+        /*
+         * Enregistrement :
+         * Écolage mensuel + Espèces uniquement.
+         */
+        Route::post(
+            '/paiements',
+            [
+                SuiviEcolageController::class,
+                'store'
+            ]
+        )->name('paiements.store');
+
+        /*
+         * ---------------------------------------------------------
+         * DROITS D'INSCRIPTION
+         * ---------------------------------------------------------
+         */
+
+        Route::get(
+            '/paiements/droits-inscription',
+            [DroitInscriptionController::class, 'index']
+        )->name('paiements.droits.index');
+
+        Route::get(
+            '/paiements/droits-inscription/create',
+            [DroitInscriptionController::class, 'create']
+        )->name('paiements.droits.create');
+
+        Route::post(
+            '/paiements/droits-inscription',
+            [DroitInscriptionController::class, 'store']
+        )->name('paiements.droits.store');
+
+        Route::get(
+            '/paiements/droits-inscription/{paiement}/recu',
+            [DroitInscriptionController::class, 'receipt']
+        )->whereNumber('paiement')
+         ->name('paiements.droits.recu');
+
+        Route::get(
+            '/paiements/droits-inscription/{paiement}',
+            [DroitInscriptionController::class, 'show']
+        )->whereNumber('paiement')
+         ->name('paiements.droits.show');
+
+
+        /*
+         * Détail d'un paiement.
+         */
+        Route::get(
+            '/paiements/{paiement}',
+            [
+                SuiviEcolageController::class,
+                'show'
+            ]
+        )->name('paiements.show');
+
+        /*
+         * Reçu / fiche de paiement.
+         */
+        Route::get(
+            '/paiements/{paiement}/recu',
+            [
+                SuiviEcolageController::class,
+                'receipt'
+            ]
+        )->name('paiements.recu');
+
+        /*
+         * Anciennes fonctions conservées.
+         */
+        Route::get(
+            '/paiements/{paiement}/edit',
+            [
+                PaiementController::class,
+                'edit'
+            ]
+        )->name('paiements.edit');
+
+        Route::put(
+            '/paiements/{paiement}',
+            [
+                PaiementController::class,
+                'update'
+            ]
+        )->name('paiements.update');
+
+        Route::patch(
+            '/paiements/{paiement}',
+            [
+                PaiementController::class,
+                'update'
+            ]
+        );
+
+        Route::delete(
+            '/paiements/{paiement}',
+            [
+                PaiementController::class,
+                'destroy'
+            ]
+        )->name('paiements.destroy');
+
+        /*
+         * Ancien écran écolages mensuels conservé.
+         */
+        Route::get(
+            '/ecolages-mensuels',
+            [
+                EcolageMensuelController::class,
+                'index'
+            ]
+        )->name('ecolages-mensuels.index');
+
+    });
 
 
     /*
@@ -413,9 +863,43 @@ Route::middleware(
                 return redirect()->route('login');
             }
 
+            // Les parents utilisent leur espace dédié, strictement consultatif.
+            if ($user->role === 'parent') {
+                return redirect()->route('parent.dashboard');
+            }
+
             return redirect()->route('dashboard');
+
         }
     )->name('after-login');
+
+
+/*
+|--------------------------------------------------------------------------
+| BULLETINS
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('role:admin,enseignant,parent')->group(function () {
+
+    Route::get(
+        '/bulletins',
+        [
+            BulletinController::class,
+            'index'
+        ]
+    )->name('bulletins.index');
+
+    Route::get(
+        '/bulletins/{student}',
+        [
+            BulletinController::class,
+            'show'
+        ]
+    )->name('bulletins.show');
+
+});
+
 });
 
 
@@ -427,4 +911,5 @@ Route::middleware(
 | Laravel Fortify gère les routes login/register/logout.
 |
 */
-
+require __DIR__.'/settings.php';
+require __DIR__.'/settings.php';

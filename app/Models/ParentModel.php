@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class ParentModel extends Model
 {
@@ -28,6 +29,19 @@ class ParentModel extends Model
             User::class,
             'user_id'
         );
+    }
+
+    /**
+     * Élèves rattachés à ce parent.
+     */
+    public function students(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Student::class,
+            "parent_student",
+            "parent_id",
+            "student_id"
+        )->withTimestamps();
     }
 
     /**

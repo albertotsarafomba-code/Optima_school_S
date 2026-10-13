@@ -62,6 +62,8 @@
                 Retour
             </a>
 
+            @if(in_array(auth()->user()->role, ['admin', 'enseignant'], true))
+
             {{-- Modifier --}}
             <a href="{{ route('notes.edit', $note) }}"
                class="inline-flex items-center justify-center gap-2
@@ -82,6 +84,8 @@
 
                 Modifier
             </a>
+
+            @endif
 
         </div>
 
@@ -654,6 +658,8 @@
     </div>
 
 
+    @if(in_array(auth()->user()->role, ['admin', 'enseignant'], true))
+
     {{-- =========================================================
          ACTIONS
     ========================================================== --}}
@@ -730,6 +736,8 @@
         </div>
 
     </div>
+
+    @endif
 
 </div>
 

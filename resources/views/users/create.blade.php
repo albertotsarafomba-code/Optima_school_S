@@ -152,7 +152,7 @@
                                 value="{{ old('name') }}"
                                 required
                                 autocomplete="name"
-                                placeholder="Ex. RAKOTO Jean"
+                                placeholder="Ex. Nom"
                                 class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300
                                        focus:ring-2 focus:ring-blue-500 focus:border-blue-500
                                        outline-none transition
@@ -198,7 +198,7 @@
                                 value="{{ old('email') }}"
                                 required
                                 autocomplete="email"
-                                placeholder="Ex. utilisateur@email.com"
+                                placeholder="nom@gmail.com"
                                 class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300
                                        focus:ring-2 focus:ring-blue-500 focus:border-blue-500
                                        outline-none transition

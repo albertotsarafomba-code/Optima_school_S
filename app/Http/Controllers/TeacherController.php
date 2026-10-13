@@ -85,72 +85,134 @@ class TeacherController extends Controller
             ->first();
     }
 
+    public function index(Request $request): View|RedirectResponse
+{
+    $establishment = $this->establishment();
+
     /**
-     * Liste des enseignants.
+     * Année scolaire sélectionnée.
      */
-    public function index(Request $request): View
-    {
-        $establishment = $this->establishment();
+    $schoolYearId = session('school_year_id');
 
-        $search = trim(
-            (string) $request->input('search')
-        );
+    if (!$schoolYearId) {
+        return redirect()
+            ->route('school_years.index')
+            ->with(
+                'error',
+                'Veuillez sélectionner une année scolaire.'
+            );
+    }
 
-        $teachers = Teacher::query()
-            ->where(
-                'establishment_id',
-                $establishment->id
-            )
-            ->with([
-                'teacherSubjects.subject',
-                'teacherSubjects.classRoom',
-                'teacherSubjects.schoolYear',
-            ])
-            ->when(
-                $search !== '',
-                function ($query) use ($search) {
-                    $query->where(function ($q) use ($search) {
-                        $q->where(
-                            'nom',
+    /**
+     * Vérifier que l'année appartient
+     * bien à l'établissement courant.
+     */
+    $schoolYear = $this->resolveSchoolYear(
+        $schoolYearId,
+        $establishment
+    );
+
+    if (!$schoolYear) {
+        session()->forget([
+            'school_year_id',
+            'school_year_name',
+        ]);
+
+        return redirect()
+            ->route('school_years.index')
+            ->with(
+                'error',
+                'L’année scolaire sélectionnée est invalide.'
+            );
+    }
+
+    /**
+     * Synchroniser la session avec l'année valide.
+     */
+    session([
+        'school_year_id' => $schoolYear->id,
+        'school_year_name' => $schoolYear->name,
+    ]);
+
+    $search = trim(
+        (string) $request->input('search')
+    );
+
+    /**
+     * Les enseignants appartiennent à l'établissement.
+     *
+     * Seules leurs affectations sont filtrées
+     * par l'année scolaire sélectionnée.
+     */
+    $teachers = Teacher::query()
+        ->where(
+            'establishment_id',
+            $establishment->id
+        )
+        ->with([
+            'teacherSubjects' => function ($query) use (
+                $schoolYear
+            ) {
+                $query
+                    ->where(
+                        'school_year_id',
+                        $schoolYear->id
+                    )
+                    ->with([
+                        'subject',
+                        'classRoom',
+                        'schoolYear',
+                    ]);
+            },
+        ])
+        ->when(
+            $search !== '',
+            function ($query) use ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where(
+                        'nom',
+                        'like',
+                        '%' . $search . '%'
+                    )
+                        ->orWhere(
+                            'prenom',
                             'like',
                             '%' . $search . '%'
                         )
-                            ->orWhere(
-                                'prenom',
-                                'like',
-                                '%' . $search . '%'
-                            )
-                            ->orWhere(
-                                'telephone',
-                                'like',
-                                '%' . $search . '%'
-                            )
-                            ->orWhere(
-                                'email',
-                                'like',
-                                '%' . $search . '%'
-                            )
-                            ->orWhere(
-                                'specialite',
-                                'like',
-                                '%' . $search . '%'
-                            );
-                    });
-                }
-            )
-            ->orderBy('nom')
-            ->orderBy('prenom')
-            ->paginate(10)
-            ->withQueryString();
+                        ->orWhere(
+                            'telephone',
+                            'like',
+                            '%' . $search . '%'
+                        )
+                        ->orWhere(
+                            'email',
+                            'like',
+                            '%' . $search . '%'
+                        )
+                        ->orWhere(
+                            'specialite',
+                            'like',
+                            '%' . $search . '%'
+                        );
+                });
+            }
+        )
+        ->orderBy('nom')
+        ->orderBy('prenom')
+        ->paginate(10)
+        ->withQueryString();
 
-        return view(
-            'teachers.index',
-            compact(
-                'teachers',
-                'search'
-            )
-        );
-    }
+    return view(
+        'teachers.index',
+        compact(
+            'teachers',
+            'search',
+            'schoolYear'
+        )
+    );
+}
+
+
 
     /**
      * Formulaire de création.
@@ -174,17 +236,22 @@ class TeacherController extends Controller
             'school_year_id'
         );
 
+        $sessionSchoolYearId =
+            session('school_year_id');
+
         $selectedSchoolYearId = old(
             'school_year_id',
             $requestedSchoolYearId
-                ?: optional($activeSchoolYear)->id
+                ?: (
+                    $sessionSchoolYearId
+                    ??
+                    optional($activeSchoolYear)->id
+                )
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Vérifier l'année sélectionnée
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Vérifier l'année sélectionnée.
+         */
         $selectedSchoolYear = $this->resolveSchoolYear(
             $selectedSchoolYearId,
             $establishment
@@ -199,16 +266,9 @@ class TeacherController extends Controller
                 optional($selectedSchoolYear)->id;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Classes de l'année sélectionnée
-        |--------------------------------------------------------------------------
-        |
-        | Une classe appartient à l'établissement courant.
-        | Le type d'établissement est donc celui de l'établissement
-        | sélectionné.
-        |
-        */
+        /**
+         * Classes de l'année sélectionnée.
+         */
         $classes = ClassRoom::query()
             ->where(
                 'establishment_id',
@@ -228,37 +288,26 @@ class TeacherController extends Controller
             ->orderBy('nom_classe')
             ->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Matières disponibles
-        |--------------------------------------------------------------------------
-        |
-        | IMPORTANT :
-        |
-        | Une matière doit :
-        |
-        | - appartenir à l'établissement courant ;
-        | - appartenir au même type d'établissement ;
-        | - être générale (school_year_id NULL)
-        |   OU appartenir à l'année sélectionnée.
-        |
-        | Cela empêche par exemple :
-        |
-        | Préscolaire -> matières Primaire
-        | Primaire     -> matières Collège
-        | Collège      -> matières Lycée
-        | Lycée        -> matières Université
-        |
-        */
+        /**
+         * Matières disponibles.
+         *
+         * Une matière peut être générale
+         * (establishment_id NULL)
+         * ou appartenir à l'établissement courant.
+         */
         $subjects = Subject::query()
-            ->where(
-                'establishment_id',
-                $establishment->id
-            )
             ->where(
                 'school_type_id',
                 $establishment->school_type_id
             )
+            ->where(function ($query) use ($establishment) {
+                $query
+                    ->whereNull('establishment_id')
+                    ->orWhere(
+                        'establishment_id',
+                        $establishment->id
+                    );
+            })
             ->when(
                 $selectedSchoolYearId,
                 function ($query) use (
@@ -303,11 +352,9 @@ class TeacherController extends Controller
         $establishment =
             $this->establishment();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Normalisation téléphone
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Normalisation téléphone.
+         */
         $request->merge([
             'telephone' => $this->normalizeTelephone(
                 $request->input('telephone')
@@ -435,11 +482,9 @@ class TeacherController extends Controller
                 'L’année scolaire sélectionnée est invalide.',
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Normalisation email
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Normalisation email.
+         */
         $validated['email'] = !empty($validated['email'])
             ? strtolower(trim($validated['email']))
             : null;
@@ -447,11 +492,9 @@ class TeacherController extends Controller
         $validated['telephone'] =
             $validated['telephone'] ?? null;
 
-        /*
-        |--------------------------------------------------------------------------
-        | Création + affectations dans une transaction
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Création + affectations dans une transaction.
+         */
         $teacher = DB::transaction(
             function () use (
                 $validated,
@@ -528,34 +571,91 @@ class TeacherController extends Controller
      */
     public function show(
         Teacher $teacher
-    ): View {
+    ): View|RedirectResponse {
+        $establishment = $this->establishment();
+
         $this->authorizeEstablishment(
             $teacher
         );
 
+        /**
+         * Année scolaire sélectionnée.
+         */
+        $schoolYearId = session('school_year_id');
+
+        if (!$schoolYearId) {
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'Veuillez sélectionner une année scolaire.'
+                );
+        }
+
+        /**
+         * Vérifier que l'année appartient
+         * à l'établissement courant.
+         */
+        $schoolYear = $this->resolveSchoolYear(
+            $schoolYearId,
+            $establishment
+        );
+
+        if (!$schoolYear) {
+            session()->forget([
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            return redirect()
+                ->route('school_years.index')
+                ->with(
+                    'error',
+                    'L’année scolaire sélectionnée est invalide.'
+                );
+        }
+
+        /**
+         * Synchroniser la session.
+         */
+        session([
+            'school_year_id' => $schoolYear->id,
+            'school_year_name' => $schoolYear->name,
+        ]);
+
+        /**
+         * Charger uniquement les affectations
+         * de l'année scolaire sélectionnée.
+         */
         $teacher->load([
             'establishment',
-            'teacherSubjects.subject',
-            'teacherSubjects.classRoom',
-            'teacherSubjects.schoolYear',
+            'teacherSubjects' => function ($query) use (
+                $schoolYear
+            ) {
+                $query
+                    ->where(
+                        'school_year_id',
+                        $schoolYear->id
+                    )
+                    ->with([
+                        'subject',
+                        'classRoom',
+                        'schoolYear',
+                    ]);
+            },
         ]);
 
         return view(
             'teachers.show',
-            compact('teacher')
+            compact(
+                'teacher',
+                'schoolYear'
+            )
         );
     }
 
     /**
      * Formulaire de modification.
-     *
-     * L'année scolaire est déterminée dans cet ordre :
-     *
-     * 1. old('school_year_id')
-     * 2. ?school_year_id=
-     * 3. année de la première affectation existante
-     * 4. année scolaire active
-     * 5. première année disponible
      */
     public function edit(
         Request $request,
@@ -577,11 +677,9 @@ class TeacherController extends Controller
             ->orderByDesc('start_date')
             ->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Première affectation existante
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Première affectation existante.
+         */
         $firstAffectation = $teacher
             ->teacherSubjects()
             ->whereNotNull('school_year_id')
@@ -595,15 +693,18 @@ class TeacherController extends Controller
             'school_year_id'
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Détermination de l'année sélectionnée
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Détermination de l'année sélectionnée.
+         */
+        $sessionSchoolYearId =
+            session('school_year_id');
+
         $selectedSchoolYearId = old(
             'school_year_id',
             $requestedSchoolYearId
                 ?: (
+                    $sessionSchoolYearId
+                    ??
                     optional($firstAffectation)
                         ->school_year_id
                     ??
@@ -612,11 +713,9 @@ class TeacherController extends Controller
                 )
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Vérification de l'année sélectionnée
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Vérification de l'année sélectionnée.
+         */
         $selectedSchoolYear = $this->resolveSchoolYear(
             $selectedSchoolYearId,
             $establishment
@@ -631,11 +730,9 @@ class TeacherController extends Controller
                 optional($selectedSchoolYear)->id;
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Classes de l'année sélectionnée
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Classes de l'année sélectionnée.
+         */
         $classes = ClassRoom::query()
             ->where(
                 'establishment_id',
@@ -655,24 +752,22 @@ class TeacherController extends Controller
             ->orderBy('nom_classe')
             ->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Matières de l'année sélectionnée
-        |--------------------------------------------------------------------------
-        |
-        | IMPORTANT :
-        | filtrage strict sur le type de l'établissement.
-        |
-        */
+        /**
+         * Matières de l'année sélectionnée.
+         */
         $subjects = Subject::query()
-            ->where(
-                'establishment_id',
-                $establishment->id
-            )
             ->where(
                 'school_type_id',
                 $establishment->school_type_id
             )
+            ->where(function ($query) use ($establishment) {
+                $query
+                    ->whereNull('establishment_id')
+                    ->orWhere(
+                        'establishment_id',
+                        $establishment->id
+                    );
+            })
             ->when(
                 $selectedSchoolYearId,
                 function ($query) use (
@@ -694,11 +789,9 @@ class TeacherController extends Controller
             ->orderBy('nom')
             ->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Affectations déjà enregistrées
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Affectations déjà enregistrées.
+         */
         $selectedAffectations = [];
 
         if ($selectedSchoolYearId) {
@@ -763,11 +856,9 @@ class TeacherController extends Controller
         $establishment =
             $this->establishment();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Normalisation téléphone
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Normalisation téléphone.
+         */
         $request->merge([
             'telephone' => $this->normalizeTelephone(
                 $request->input('telephone')
@@ -895,11 +986,9 @@ class TeacherController extends Controller
                 'L’année scolaire sélectionnée est invalide.',
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Normalisation email
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Normalisation email.
+         */
         $validated['email'] = !empty($validated['email'])
             ? strtolower(trim($validated['email']))
             : null;
@@ -954,12 +1043,10 @@ class TeacherController extends Controller
                             : null,
                 ]);
 
-                /*
-                |--------------------------------------------------------------------------
-                | Supprimer uniquement les affectations
-                | de l'année scolaire sélectionnée.
-                |--------------------------------------------------------------------------
-                */
+                /**
+                 * Supprimer uniquement les affectations
+                 * de l'année sélectionnée.
+                 */
                 TeacherSubject::query()
                     ->where(
                         'teacher_id',
@@ -971,11 +1058,9 @@ class TeacherController extends Controller
                     )
                     ->delete();
 
-                /*
-                |--------------------------------------------------------------------------
-                | Recréer les affectations valides.
-                |--------------------------------------------------------------------------
-                */
+                /**
+                 * Recréer les affectations.
+                 */
                 $this->syncTeacherSubjects(
                     $teacher,
                     $validated['school_year_id'],
@@ -1038,7 +1123,8 @@ class TeacherController extends Controller
      *      ↓
      * Matière
      *
-     * Les vérifications sont faites côté serveur.
+     * L'enseignant sélectionne une matière existante
+     * et la classe dans laquelle il l'enseigne.
      */
     private function syncTeacherSubjects(
         Teacher $teacher,
@@ -1046,14 +1132,11 @@ class TeacherController extends Controller
         array $affectations,
         Establishment $establishment
     ): void {
-        $schoolYearId =
-            (int) $schoolYearId;
+        $schoolYearId = (int) $schoolYearId;
 
-        /*
-        |--------------------------------------------------------------------------
-        | Vérifier l'année scolaire
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Vérifier l'année scolaire.
+         */
         $schoolYear = SchoolYear::query()
             ->where(
                 'id',
@@ -1065,19 +1148,19 @@ class TeacherController extends Controller
             )
             ->firstOrFail();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Vérifier que l'enseignant appartient bien
-        | à l'établissement courant.
-        |--------------------------------------------------------------------------
-        */
+        /**
+         * Vérifier l'enseignant.
+         */
         abort_unless(
             (int) $teacher->establishment_id ===
-            (int) $establishment->id,
+                (int) $establishment->id,
             403,
             'Cet enseignant n’appartient pas à l’établissement sélectionné.'
         );
 
+        /**
+         * Parcourir les classes sélectionnées.
+         */
         foreach (
             $affectations as $classRoomId => $subjectIds
         ) {
@@ -1085,17 +1168,9 @@ class TeacherController extends Controller
                 continue;
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Vérifier la classe
-            |--------------------------------------------------------------------------
-            |
-            | La classe doit :
-            |
-            | - appartenir à l'établissement courant ;
-            | - appartenir à l'année sélectionnée.
-            |
-            */
+            /**
+             * Vérifier la classe.
+             */
             $classRoom = ClassRoom::query()
                 ->where(
                     'id',
@@ -1115,6 +1190,9 @@ class TeacherController extends Controller
                 continue;
             }
 
+            /**
+             * Parcourir les matières sélectionnées.
+             */
             foreach ($subjectIds as $subjectId) {
                 $subjectId = (int) $subjectId;
 
@@ -1122,28 +1200,29 @@ class TeacherController extends Controller
                     continue;
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Vérifier la matière
-                |--------------------------------------------------------------------------
-                |
-                | La matière doit :
-                |
-                | 1. appartenir au même établissement ;
-                | 2. appartenir au même type d'établissement ;
-                | 3. être générale OU appartenir à l'année sélectionnée.
-                |
-                |--------------------------------------------------------------------------
-                */
+                /**
+                 * Vérifier la matière.
+                 *
+                 * La matière peut être générale
+                 * ou appartenir à l'établissement courant.
+                 */
                 $subject = Subject::query()
                     ->where(
                         'id',
                         $subjectId
                     )
-                    ->where(
-                        'establishment_id',
-                        $establishment->id
-                    )
+                    ->where(function ($query) use (
+                        $establishment
+                    ) {
+                        $query
+                            ->whereNull(
+                                'establishment_id'
+                            )
+                            ->orWhere(
+                                'establishment_id',
+                                $establishment->id
+                            );
+                    })
                     ->where(
                         'school_type_id',
                         $establishment->school_type_id
@@ -1162,52 +1241,17 @@ class TeacherController extends Controller
                     })
                     ->first();
 
-                /*
-                |--------------------------------------------------------------------------
-                | Matière inexistante ou d'un autre type :
-                | on refuse l'affectation.
-                |--------------------------------------------------------------------------
-                */
                 if (!$subject) {
                     continue;
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Vérification importante :
-                |
-                | La matière doit réellement être affectée
-                | à cette classe dans class_room_subjects.
-                |--------------------------------------------------------------------------
-                */
-                $classSubjectExists = DB::table(
-                    'class_room_subjects'
-                )
-                    ->where(
-                        'class_room_id',
-                        $classRoom->id
-                    )
-                    ->where(
-                        'subject_id',
-                        $subject->id
-                    )
-                    ->exists();
-
-                /*
-                |--------------------------------------------------------------------------
-                | Si la matière n'appartient pas à la classe,
-                | on ne crée PAS l'affectation enseignant.
-                |--------------------------------------------------------------------------
-                */
-                if (!$classSubjectExists) {
-                    continue;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Éviter les doublons.
-                |--------------------------------------------------------------------------
-                */
+                /**
+                 * Créer l'affectation.
+                 *
+                 * IMPORTANT :
+                 * aucune vérification de class_room_subjects
+                 * ici.
+                 */
                 TeacherSubject::firstOrCreate([
                     'teacher_id' =>
                         $teacher->id,
@@ -1238,7 +1282,7 @@ class TeacherController extends Controller
         abort_unless(
             $establishmentId &&
             (int) $teacher->establishment_id ===
-            (int) $establishmentId,
+                (int) $establishmentId,
             403,
             'Cet enseignant n’appartient pas à l’établissement sélectionné.'
         );
@@ -1278,10 +1322,12 @@ class TeacherController extends Controller
             $telephone
         );
 
-        if (str_starts_with(
-            $telephone,
-            '+261'
-        )) {
+        if (
+            str_starts_with(
+                $telephone,
+                '+261'
+            )
+        ) {
             $telephone =
                 '0' .
                 substr(

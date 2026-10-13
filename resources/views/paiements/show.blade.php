@@ -410,6 +410,57 @@
             </div>
 
 
+            {{-- Reçu disponible immédiatement --}}
+            <div class="mt-8 rounded-xl border border-green-200 bg-green-50 p-5">
+
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+                    <div>
+                        <h2 class="text-lg font-bold text-gray-800">
+                            Paiement enregistré
+                        </h2>
+
+                        <p class="text-sm text-gray-600 mt-1">
+                            Ce paiement est enregistré en espèces.
+                            Le reçu peut être consulté ou imprimé immédiatement.
+                        </p>
+                    </div>
+
+                    <a href="{{ route('paiements.recu', $paiement) }}"
+                       target="_blank"
+                       class="inline-flex justify-center items-center gap-2
+                              px-5 py-3 rounded-lg
+                              bg-green-700 text-white font-semibold
+                              hover:bg-green-800 transition">
+
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             class="w-5 h-5"
+                             fill="none"
+                             viewBox="0 0 24 24"
+                             stroke="currentColor"
+                             stroke-width="2">
+
+                            <path stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M6 9V4.5A1.5 1.5 0 017.5 3h9A1.5 1.5 0 0118 4.5V9"/>
+
+                            <path stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M6 18h12"/>
+
+                            <path stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M6 13.5h12A1.5 1.5 0 0119.5 15v4.5A1.5 1.5 0 0118 21H6a1.5 1.5 0 01-1.5-1.5V15A1.5 1.5 0 016 13.5z"/>
+                        </svg>
+
+                        Voir / imprimer le reçu
+                    </a>
+
+                </div>
+
+            </div>
+
+
             {{-- Actions --}}
             <div class="mt-8 pt-6 border-t border-gray-200 flex flex-col sm:flex-row gap-3">
 
