@@ -184,28 +184,7 @@
 
             <div class="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 lg:grid-cols-3">
 
-                {{-- MATRICULE --}}
-                <div>
-
-                    <label
-                        for="matricule"
-                        class="mb-1.5 block text-sm font-semibold text-gray-700"
-                    >
-                        Matricule
-                    </label>
-
-                    <input
-                        type="text"
-                        id="matricule"
-                        name="matricule"
-                        value="{{ old('matricule') }}"
-                        maxlength="100"
-                        placeholder="Ex : ETU-2026-001"
-                        class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                    >
-
-                </div>
-
+                
 
                 {{-- NOM --}}
                 <div>

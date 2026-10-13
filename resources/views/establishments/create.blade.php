@@ -484,6 +484,7 @@
                         <form
                             method="POST"
                             action="{{ route('establishments.store') }}"
+                            enctype="multipart/form-data"
                             class="space-y-4"
                         >
 
@@ -819,6 +820,64 @@
                             </div>
 
 
+                            <!-- LOGO -->
+
+                            <div>
+
+                                <label
+                                    for="logo"
+                                    class="block text-sm font-semibold text-slate-700 mb-1.5"
+                                >
+                                    Logo de l'établissement
+                                </label>
+
+                                <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+
+                                    <div
+                                        id="logo-preview-container"
+                                        class="hidden w-20 h-20 rounded-lg border border-slate-300 bg-slate-50 overflow-hidden shrink-0"
+                                    >
+                                        <img
+                                            id="logo-preview"
+                                            src=""
+                                            alt="Aperçu du logo"
+                                            class="w-full h-full object-contain"
+                                        >
+                                    </div>
+
+                                    <div class="flex-1">
+
+                                        <input
+                                            id="logo"
+                                            type="file"
+                                            name="logo"
+                                            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                            class="block w-full text-sm text-slate-600
+                                                   file:mr-4 file:py-2.5 file:px-4
+                                                   file:rounded-lg file:border-0
+                                                   file:bg-blue-50 file:text-blue-700
+                                                   file:font-semibold
+                                                   hover:file:bg-blue-100
+                                                   cursor-pointer"
+                                        >
+
+                                        <p class="mt-1.5 text-xs text-slate-500">
+                                            JPG, JPEG, PNG ou WEBP — 5 Mo maximum.
+                                        </p>
+
+                                        @error('logo')
+                                            <p class="mt-1 text-xs text-red-600">
+                                                {{ $message }}
+                                            </p>
+                                        @enderror
+
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+
                             <!-- INFORMATION -->
 
                             <div class="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-100">
@@ -931,6 +990,43 @@
     </div>
 
 </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const logoInput = document.getElementById('logo');
+            const previewContainer = document.getElementById('logo-preview-container');
+            const preview = document.getElementById('logo-preview');
+
+            if (!logoInput || !previewContainer || !preview) {
+                return;
+            }
+
+            logoInput.addEventListener('change', function () {
+                const file = this.files && this.files[0];
+
+                if (!file) {
+                    preview.src = '';
+                    previewContainer.classList.add('hidden');
+                    return;
+                }
+
+                if (!file.type.startsWith('image/')) {
+                    preview.src = '';
+                    previewContainer.classList.add('hidden');
+                    return;
+                }
+
+                const reader = new FileReader();
+
+                reader.onload = function (event) {
+                    preview.src = event.target.result;
+                    previewContainer.classList.remove('hidden');
+                };
+
+                reader.readAsDataURL(file);
+            });
+        });
+    </script>
 
 </body>
 </html>

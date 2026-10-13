@@ -21,6 +21,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'profile_photo_path',
     ];
 
     /**
@@ -42,6 +43,24 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * Retourne l'URL de la photo de profil si elle existe.
+     */
+    public function profilePhotoUrl(): ?string
+    {
+        if (empty($this->profile_photo_path)) {
+            return null;
+        }
+
+        $disk = \Illuminate\Support\Facades\Storage::disk('public');
+
+        if (! $disk->exists($this->profile_photo_path)) {
+            return null;
+        }
+
+        return $disk->url($this->profile_photo_path);
     }
 
     /**

@@ -431,17 +431,18 @@ $totalAssignments = $teachers->sum(function ($teacher) {
                                                 @foreach($groupedAssignments as $classAssignments)
 
                                                     @php
-                                                        $class = $classAssignments->first()->classRoom;
+    $class = $classAssignments->first()->classRoom;
 
-                                                        $subjectsForClass = $classAssignments
-                                                            ->filter(function ($assignment) {
-                                                                return $assignment->subject;
-                                                            })
-                                                            ->pluck('subject.nom')
-                                                            ->filter()
-                                                            ->unique()
-                                                            ->values();
-                                                    @endphp
+    $subjectsForClass = $classAssignments
+        ->map(function ($assignment) {
+            return $assignment->subject?->nom;
+        })
+        ->filter(function ($subjectName) {
+            return filled($subjectName);
+        })
+        ->unique()
+        ->values();
+@endphp
 
                                                     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
 

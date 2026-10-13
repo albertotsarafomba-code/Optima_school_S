@@ -110,8 +110,11 @@
     @csrf
     @method('PUT')
 
-    <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+    <input type="hidden"
+           name="student_id"
+           value="{{ old('student_id', $inscription->student_id) }}">
 
+    <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
 
         {{-- ÉTUDIANT --}}
         <div class="border-b border-gray-200">

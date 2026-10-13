@@ -33,10 +33,6 @@ class StudentController extends Controller
 
     /**
      * Récupère l'établissement actuellement sélectionné.
-     *
-     * IMPORTANT :
-     * On utilise directement l'ID présent dans la session
-     * pour récupérer le véritable établissement en base.
      */
     private function currentEstablishment(): Establishment
     {
@@ -58,9 +54,6 @@ class StudentController extends Controller
                 ->throwResponse();
         }
 
-        /*
-         * Récupération directe par l'ID réel de l'établissement.
-         */
         $establishment = Establishment::query()
             ->whereKey($establishmentId)
             ->with('schoolType')
@@ -82,12 +75,6 @@ class StudentController extends Controller
 
         /*
          * Vérification des droits d'accès.
-         *
-         * ADMIN :
-         * l'établissement doit appartenir à l'utilisateur.
-         *
-         * AUTRES UTILISATEURS :
-         * l'établissement doit être présent dans establishment_user.
          */
         if ($user->role === 'admin') {
             $hasAccess = Establishment::query()
@@ -118,8 +105,7 @@ class StudentController extends Controller
         }
 
         /*
-         * Synchronisation du nom de l'établissement
-         * dans la session.
+         * Synchronisation de la session.
          */
         session([
             'establishment_id' => $establishment->id,
@@ -127,6 +113,127 @@ class StudentController extends Controller
         ]);
 
         return $establishment;
+    }
+
+    /**
+     * Détermine l'année scolaire active.
+     *
+     * Priorité :
+     * 1. année scolaire de la session
+     * 2. année active
+     * 3. première année disponible
+     */
+    private function activeSchoolYear($schoolYears)
+    {
+        $activeSchoolYear = null;
+
+        $schoolYearId = session('school_year_id');
+
+        /*
+         * 1. Année sélectionnée dans la session.
+         */
+        if ($schoolYearId) {
+            $activeSchoolYear = $schoolYears->firstWhere(
+                'id',
+                (int) $schoolYearId
+            );
+        }
+
+        /*
+         * 2. Année active.
+         */
+        if (!$activeSchoolYear) {
+            $activeSchoolYear = $schoolYears->firstWhere(
+                'is_active',
+                true
+            );
+        }
+
+        /*
+         * 3. Première année disponible.
+         */
+        if (!$activeSchoolYear) {
+            $activeSchoolYear = $schoolYears->first();
+        }
+
+        /*
+         * Synchronisation de la session.
+         */
+        if ($activeSchoolYear) {
+            session([
+                'school_year_id' => $activeSchoolYear->id,
+                'school_year_name' =>
+                    $activeSchoolYear->name
+                    ?? $activeSchoolYear->nom
+                    ?? $activeSchoolYear->annee_scolaire
+                    ?? null,
+            ]);
+        }
+
+        return $activeSchoolYear;
+    }
+
+    /**
+     * Génère automatiquement le prochain matricule.
+     *
+     * Format :
+     *
+     * MAT-2026-0001
+     * MAT-2026-0002
+     * MAT-2026-0003
+     *
+     * Le numéro est indépendant de l'ID étudiant.
+     */
+    private function generateMatricule(
+        int $establishmentId
+    ): string {
+        $year = now()->year;
+
+        $prefix = 'MAT-' . $year . '-';
+
+        $lastStudent = Student::query()
+            ->where(
+                'establishment_id',
+                $establishmentId
+            )
+            ->whereNotNull('matricule')
+            ->where(
+                'matricule',
+                'like',
+                $prefix . '%'
+            )
+            ->orderByDesc('id')
+            ->first();
+
+        /*
+         * Aucun matricule existant.
+         */
+        if (
+            !$lastStudent ||
+            !$lastStudent->matricule
+        ) {
+            return $prefix . '0001';
+        }
+
+        /*
+         * Récupération du numéro après MAT-AAAA-
+         */
+        $lastNumber = (int) substr(
+            $lastStudent->matricule,
+            strlen($prefix)
+        );
+
+        $nextNumber = $lastNumber + 1;
+
+        /*
+         * Format sur 4 chiffres.
+         */
+        return $prefix . str_pad(
+            $nextNumber,
+            4,
+            '0',
+            STR_PAD_LEFT
+        );
     }
 
     /**
@@ -157,14 +264,8 @@ class StudentController extends Controller
                 $establishmentId
             );
 
-        /*
-         * Total étudiants.
-         */
         $studentCount = (clone $statisticsQuery)->count();
 
-        /*
-         * Masculins.
-         */
         $maleCount = (clone $statisticsQuery)
             ->where(function ($query) {
                 $query
@@ -173,9 +274,6 @@ class StudentController extends Controller
             })
             ->count();
 
-        /*
-         * Féminins.
-         */
         $femaleCount = (clone $statisticsQuery)
             ->where(function ($query) {
                 $query
@@ -290,7 +388,7 @@ class StudentController extends Controller
 
         /*
          * =========================================================
-         * STATISTIQUES ENVOYÉES À LA VUE
+         * STATISTIQUES
          * =========================================================
          */
 
@@ -324,6 +422,9 @@ class StudentController extends Controller
 
         $establishmentId = $establishment->id;
 
+        /*
+         * Classes de l'établissement courant.
+         */
         $classes = ClassRoom::query()
             ->where(
                 'establishment_id',
@@ -332,20 +433,40 @@ class StudentController extends Controller
             ->orderBy('nom_classe')
             ->get();
 
+        /*
+         * Années scolaires de l'établissement courant.
+         */
         $schoolYears = SchoolYear::query()
             ->where(
                 'establishment_id',
                 $establishmentId
             )
+            ->orderByDesc('is_active')
             ->orderByDesc('id')
             ->get();
+
+        /*
+         * Année scolaire active.
+         */
+        $activeSchoolYear = $this->activeSchoolYear(
+            $schoolYears
+        );
+
+        /*
+         * Prochain matricule automatique.
+         */
+        $nextMatricule = $this->generateMatricule(
+            $establishmentId
+        );
 
         return view(
             'students.create',
             compact(
                 'establishment',
                 'classes',
-                'schoolYears'
+                'schoolYears',
+                'activeSchoolYear',
+                'nextMatricule'
             )
         );
     }
@@ -426,19 +547,21 @@ class StudentController extends Controller
             ],
         ];
 
+        /*
+         * Le matricule reste géré automatiquement.
+         */
         if (Schema::hasColumn('students', 'matricule')) {
             $rules['matricule'] = [
                 'nullable',
                 'string',
                 'max:100',
-                'unique:students,matricule',
             ];
         }
 
         $validated = $request->validate($rules);
 
         /*
-         * Vérification de la classe si elle est fournie.
+         * Vérification de la classe.
          */
         if (
             !empty($validated['class_room_id'])
@@ -494,6 +617,21 @@ class StudentController extends Controller
          */
         $validated['establishment_id'] =
             $establishmentId;
+
+        /*
+         * =========================================================
+         * MATRICULE AUTOMATIQUE
+         * =========================================================
+         *
+         * Le matricule envoyé par le navigateur est ignoré.
+         * Le backend génère toujours le prochain matricule.
+         */
+        if (Schema::hasColumn('students', 'matricule')) {
+            $validated['matricule'] =
+                $this->generateMatricule(
+                    $establishmentId
+                );
+        }
 
         /*
          * Création.
@@ -571,8 +709,16 @@ class StudentController extends Controller
                 'establishment_id',
                 $establishment->id
             )
+            ->orderByDesc('is_active')
             ->orderByDesc('id')
             ->get();
+
+        /*
+         * Année scolaire active.
+         */
+        $activeSchoolYear = $this->activeSchoolYear(
+            $schoolYears
+        );
 
         return view(
             'students.edit',
@@ -580,7 +726,8 @@ class StudentController extends Controller
                 'student',
                 'establishment',
                 'classes',
-                'schoolYears'
+                'schoolYears',
+                'activeSchoolYear'
             )
         );
     }
@@ -671,6 +818,10 @@ class StudentController extends Controller
             ],
         ];
 
+        /*
+         * Le matricule existant ne doit pas être modifié
+         * automatiquement lors de l'édition.
+         */
         if (Schema::hasColumn('students', 'matricule')) {
             $rules['matricule'] = [
                 'nullable',

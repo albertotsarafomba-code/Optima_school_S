@@ -2,81 +2,177 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\EcolageMensuel;
+use App\Models\Inscription;
 use App\Models\Paiement;
+use App\Models\Establishment;
+use App\Models\SchoolYear;
+use App\Models\EcolageTarif;
 use Illuminate\Http\Request;
 
 class EcolageMensuelController extends Controller
 {
     /**
-     * Afficher le suivi mensuel des écolages.
+     * Vérifie l'accès à l'établissement sélectionné.
      */
-    public function index(Request $request)
+    private function currentEstablishment(): Establishment
     {
         $establishmentId = session('establishment_id');
-        $schoolYearId = session('school_year_id');
 
         if (!$establishmentId) {
             abort(403, 'Aucun établissement sélectionné.');
         }
 
-        if (!$schoolYearId) {
-            abort(403, 'Aucune année scolaire sélectionnée.');
+        $user = auth()->user();
+
+        if (!$user) {
+            abort(403, 'Utilisateur non authentifié.');
         }
 
-        $mois = (int) ($request->input('mois') ?? now()->month);
+        if ($user->role === 'admin') {
+            $establishment = Establishment::find($establishmentId);
+        } else {
+            $establishment = $user->assignedEstablishments()
+                ->where('establishments.id', $establishmentId)
+                ->first();
+        }
 
-        $annee = (int) (
-            $request->input('annee')
-            ?? now()->year
-        );
+        if (!$establishment) {
+            abort(403, 'Vous n’avez pas accès à cet établissement.');
+        }
+
+        return $establishment;
+    }
+
+    /**
+     * Vérifie que l'année scolaire appartient à l'établissement.
+     */
+    private function currentSchoolYear(Establishment $establishment): SchoolYear
+    {
+        $schoolYearId = session('school_year_id');
+
+        if (!$schoolYearId) {
+            $schoolYearId = SchoolYear::query()
+                ->where('establishment_id', $establishment->id)
+                ->where('is_active', true)
+                ->orderByDesc('id')
+                ->value('id');
+        }
+
+        if (!$schoolYearId) {
+            abort(404, 'Aucune année scolaire disponible.');
+        }
+
+        $schoolYear = SchoolYear::query()
+            ->whereKey($schoolYearId)
+            ->where('establishment_id', $establishment->id)
+            ->first();
+
+        if (!$schoolYear) {
+            abort(403, 'Cette année scolaire n’appartient pas à cet établissement.');
+        }
+
+        return $schoolYear;
+    }
+
+    /**
+     * Afficher le suivi mensuel des écolages.
+     */
+    public function index(Request $request)
+    {
+        $establishment = $this->currentEstablishment();
+        $schoolYear = $this->currentSchoolYear($establishment);
+
+        $establishmentId = (int) $establishment->id;
+        $schoolYearId = (int) $schoolYear->id;
+
+        $mois = (int) ($request->input('mois') ?? now()->month);
+        $annee = (int) ($request->input('annee') ?? now()->year);
 
         if ($mois < 1 || $mois > 12) {
             $mois = now()->month;
         }
 
-        $ecolages = EcolageMensuel::query()
-            ->with([
-                'student',
-                'schoolYear',
-                'establishment',
-            ])
+        if ($annee < 2000 || $annee > 2100) {
+            $annee = now()->year;
+        }
+
+        /*
+         * Récupérer les inscriptions actives de l'établissement
+         * et de l'année scolaire sélectionnés.
+         */
+        $inscriptions = Inscription::query()
+            ->with(['student', 'classRoom'])
             ->where('establishment_id', $establishmentId)
             ->where('school_year_id', $schoolYearId)
+            ->where('statut', 'Actif')
             ->get();
 
-        $suivi = $ecolages->map(function ($ecolage) use ($mois, $annee) {
+        /*
+         * Charger les tarifs par classe pour éviter de répéter
+         * la même requête pour chaque élève.
+         */
+        $tarifs = EcolageTarif::query()
+            ->where('establishment_id', $establishmentId)
+            ->where('school_year_id', $schoolYearId)
+            ->get()
+            ->keyBy('class_room_id');
 
-            $paye = Paiement::query()
-                ->where('establishment_id', $ecolage->establishment_id)
-                ->where('student_id', $ecolage->student_id)
-                ->where('annee', $annee)
-                ->where('mois', $mois)
-                ->where(function ($query) {
-                    $query
-                        ->where('type_paiement', 'Écolage mensuel')
-                        ->orWhere('type_paiement', 'Ecolage mensuel')
-                        ->orWhere('type_paiement', 'écolage mensuel')
-                        ->orWhere('type_paiement', 'ecolage mensuel');
-                })
-                ->sum('montant');
+        /*
+         * Calculer le montant payé pour chaque élève.
+         * Les paiements sont regroupés par élève pour le mois choisi.
+         */
+        $paiements = Paiement::query()
+            ->where('establishment_id', $establishmentId)
+            ->where('school_year_id', $schoolYearId)
+            ->where('mois', $mois)
+            ->where('annee', $annee)
+            ->whereIn('type_paiement', [
+                'Écolage mensuel',
+                'Ecolage mensuel',
+                'écolage mensuel',
+                'ecolage mensuel',
+            ])
+            ->selectRaw('student_id, SUM(montant) as total_paye')
+            ->groupBy('student_id')
+            ->pluck('total_paye', 'student_id');
 
-            $prevu = (float) $ecolage->montant_mensuel;
-            $paye = (float) $paye;
+        $suivi = $inscriptions->map(function ($inscription) use (
+            $tarifs,
+            $paiements,
+            $mois,
+            $annee
+        ) {
+            $student = $inscription->student;
+            $classRoomId = $inscription->class_room_id;
 
-            $reste = max(0, $prevu - $paye);
+            $tarif = $tarifs->get($classRoomId);
 
-            if ($paye >= $prevu) {
-                $statut = 'Payé';
-            } elseif ($paye > 0) {
-                $statut = 'Partiel';
+            $prevu = $tarif !== null
+                ? (float) $tarif->montant_mensuel
+                : null;
+
+            $paye = (float) ($paiements[$inscription->student_id] ?? 0);
+
+            if ($prevu === null) {
+                $reste = null;
+                $statut = 'Tarif non défini';
             } else {
-                $statut = 'Impayé';
+                $reste = max(0, $prevu - $paye);
+
+                if ($paye >= $prevu) {
+                    $statut = 'Payé';
+                } elseif ($paye > 0) {
+                    $statut = 'Partiel';
+                } else {
+                    $statut = 'Impayé';
+                }
             }
 
             return [
-                'ecolage' => $ecolage,
-                'student' => $ecolage->student,
+                'inscription' => $inscription,
+                'ecolage' => $tarif,
+                'student' => $student,
+                'classRoom' => $inscription->classRoom,
                 'mois' => $mois,
                 'annee' => $annee,
                 'prevu' => $prevu,
@@ -88,11 +184,7 @@ class EcolageMensuelController extends Controller
 
         return view(
             'ecolages_mensuels.index',
-            compact(
-                'suivi',
-                'mois',
-                'annee'
-            )
+            compact('suivi', 'mois', 'annee')
         );
     }
 }

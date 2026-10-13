@@ -282,7 +282,7 @@
                                             bg-blue-100 text-blue-700
                                         @elseif($roleEnum->value === 'enseignant')
                                             bg-green-100 text-green-700
-                                        @elseif($roleEnum->value === 'eleve')
+                                        @elseif($roleEnum->value === 'comptable')
                                             bg-purple-100 text-purple-700
                                         @elseif($roleEnum->value === 'parent')
                                             bg-orange-100 text-orange-700

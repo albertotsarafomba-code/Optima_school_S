@@ -206,13 +206,18 @@ RÉSUMÉ
 ========================================================= --}}
 
 @php
-    $totalPrevu = $suivi->sum('prevu');
+    $suiviAvecTarif = $suivi->filter(
+        fn ($ligne) => $ligne['prevu'] !== null
+    );
+
+    $totalPrevu = $suiviAvecTarif->sum('prevu');
     $totalPaye = $suivi->sum('paye');
-    $totalReste = $suivi->sum('reste');
+    $totalReste = $suiviAvecTarif->sum('reste');
 
     $nombrePaye = $suivi->where('statut', 'Payé')->count();
     $nombrePartiel = $suivi->where('statut', 'Partiel')->count();
     $nombreImpaye = $suivi->where('statut', 'Impayé')->count();
+    $nombreTarifManquant = $suivi->where('statut', 'Tarif non défini')->count();
 @endphp
 
 
@@ -362,6 +367,10 @@ RÉSUMÉ
 
                 <span class="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
                     {{ $nombreImpaye }} impayé(s)
+                </span>
+
+                <span class="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
+                    {{ $nombreTarifManquant }} tarif(s) non défini(s)
                 </span>
 
             </div>
@@ -529,9 +538,15 @@ TABLEAU
                             {{-- Prévu --}}
                             <td class="whitespace-nowrap px-5 py-5 text-right">
 
-                                <span class="font-semibold text-blue-950">
-                                    {{ number_format($ligne['prevu'], 0, ',', ' ') }} Ar
-                                </span>
+                                @if($ligne['prevu'] !== null)
+                                    <span class="font-semibold text-blue-950">
+                                        {{ number_format($ligne['prevu'], 0, ',', ' ') }} Ar
+                                    </span>
+                                @else
+                                    <span class="text-sm font-medium text-gray-500">
+                                        Non défini
+                                    </span>
+                                @endif
 
                             </td>
 
@@ -549,14 +564,18 @@ TABLEAU
                             {{-- Reste --}}
                             <td class="whitespace-nowrap px-5 py-5 text-right">
 
-                                <span class="font-semibold
-                                    {{ $ligne['reste'] > 0
-                                        ? 'text-red-600'
-                                        : 'text-green-700' }}">
-
-                                    {{ number_format($ligne['reste'], 0, ',', ' ') }} Ar
-
-                                </span>
+                                @if($ligne['reste'] !== null)
+                                    <span class="font-semibold
+                                        {{ $ligne['reste'] > 0
+                                            ? 'text-red-600'
+                                            : 'text-green-700' }}">
+                                        {{ number_format($ligne['reste'], 0, ',', ' ') }} Ar
+                                    </span>
+                                @else
+                                    <span class="text-sm font-medium text-gray-500">
+                                        Non défini
+                                    </span>
+                                @endif
 
                             </td>
 
@@ -576,6 +595,13 @@ TABLEAU
                                     <span class="inline-flex rounded-full bg-orange-100 px-3 py-1
                                                  text-xs font-semibold text-orange-700">
                                         Partiel
+                                    </span>
+
+                                @elseif($ligne['statut'] === 'Tarif non défini')
+
+                                    <span class="inline-flex rounded-full bg-gray-100 px-3 py-1
+                                                 text-xs font-semibold text-gray-700">
+                                        Tarif non défini
                                     </span>
 
                                 @else

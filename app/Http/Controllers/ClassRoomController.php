@@ -26,7 +26,6 @@ class ClassRoomController extends Controller
         abort_unless($establishmentId, 403);
 
         $search = trim((string) $request->input('search'));
-        $schoolYearId = $request->input('school_year_id');
 
         $establishment = Establishment::query()
             ->with('schoolType')
@@ -38,8 +37,45 @@ class ClassRoomController extends Controller
             ->orderByDesc('start_date')
             ->get();
 
+        /*
+         * Année scolaire sélectionnée :
+         *
+         * 1. paramètre school_year_id
+         * 2. session school_year_id
+         */
+        $schoolYearId = $request->input('school_year_id');
+
+        if ($schoolYearId === null || $schoolYearId === '') {
+            $schoolYearId = session('school_year_id');
+        }
+
+        if ($schoolYearId === null || $schoolYearId === '') {
+            return redirect()
+                ->route('school_years.index')
+                ->with('error', 'Veuillez sélectionner une année scolaire.');
+        }
+
+        $schoolYear = SchoolYear::query()
+            ->where('id', $schoolYearId)
+            ->where('establishment_id', $establishmentId)
+            ->first();
+
+        if (!$schoolYear) {
+            session()->forget([
+                'school_year_id',
+                'school_year_name',
+            ]);
+
+            return redirect()
+                ->route('school_years.index')
+                ->with('error', 'L’année scolaire sélectionnée est invalide.');
+        }
+
+        $schoolYearId = $schoolYear->id;
+
         $classRoomsQuery = ClassRoom::query()
             ->where('establishment_id', $establishmentId)
+            ->where('school_year_id', $schoolYearId)
             ->with([
                 'teacher',
                 'room',
@@ -51,13 +87,6 @@ class ClassRoomController extends Controller
                 },
                 'subjects as subjects_count',
             ]);
-
-        if ($schoolYearId !== null && $schoolYearId !== '') {
-            $classRoomsQuery->where(
-                'school_year_id',
-                $schoolYearId
-            );
-        }
 
         if ($search !== '') {
             $classRoomsQuery->where(function ($query) use ($search) {
@@ -626,6 +655,10 @@ class ClassRoomController extends Controller
             ->where(
                 'statut',
                 'Actif'
+            )
+            ->where(
+                'school_year_id',
+                $classRoom->school_year_id
             )
             ->get()
             ->map(function ($inscription) {

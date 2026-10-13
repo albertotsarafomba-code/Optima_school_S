@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\ClassRoom;
+use App\Models\SchoolYear;
+use App\Models\EmploiDuTemps;
 use App\Models\Salle;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -117,76 +119,222 @@ class SalleController extends Controller
     {
         $this->authorizeEstablishment($salle);
 
-        $salle->load([
-            'classRooms.teacher',
-            'classRooms.inscriptions.student',
-            'classRooms.inscriptions.schoolYear',
-        ]);
+        $establishmentId = (int) $salle->establishment_id;
 
         /*
-         * On prend les classes liées par salle_id.
-         *
-         * Pour conserver les anciennes données, on ajoute également
-         * les anciennes classes dont class_rooms.salle correspond
-         * au nom de la salle.
+         * L'année scolaire doit appartenir à l'établissement courant.
+         * Si la session n'est plus valide, on choisit l'année active,
+         * puis la plus récente si aucune n'est active.
+         */
+        $schoolYears = SchoolYear::query()
+            ->where('establishment_id', $establishmentId)
+            ->orderByDesc('is_active')
+            ->orderByDesc('start_date')
+            ->get();
+
+        $schoolYearId = (int) session('school_year_id');
+
+        $schoolYear = $schoolYears->firstWhere('id', $schoolYearId);
+
+        if (!$schoolYear) {
+            $schoolYear = $schoolYears->first();
+
+            if ($schoolYear) {
+                session([
+                    'school_year_id' => $schoolYear->id,
+                    'school_year_name' => $schoolYear->name,
+                ]);
+            } else {
+                session()->forget([
+                    'school_year_id',
+                    'school_year_name',
+                ]);
+            }
+        }
+
+        $schoolYearId = $schoolYear ? (int) $schoolYear->id : null;
+
+        /*
+         * Classes de la salle :
+         * - affectation principale par salle_id ;
+         * - compatibilité avec les anciennes données textuelles ;
+         * - séparation par année scolaire ;
+         * - les anciennes classes sans année ne sont retenues que
+         *   si elles possèdent une inscription de l'année sélectionnée.
          */
         $classRooms = ClassRoom::query()
-            ->where('establishment_id', $salle->establishment_id)
-            ->with([
-                'teacher',
-                'inscriptions.student',
-                'inscriptions.schoolYear',
-            ])
+            ->where('establishment_id', $establishmentId)
             ->where(function ($query) use ($salle) {
-                $query
-                    ->where('salle_id', $salle->id)
-                    ->orWhere(function ($q) use ($salle) {
-                        $q->whereNull('salle_id')
+                $query->where('salle_id', $salle->id)
+                    ->orWhere(function ($legacy) use ($salle) {
+                        $legacy->whereNull('salle_id')
                             ->where('salle', $salle->nom);
                     });
             })
+            ->when($schoolYearId !== null, function ($query) use (
+                $schoolYearId,
+                $establishmentId
+            ) {
+                $query->where(function ($yearQuery) use (
+                    $schoolYearId,
+                    $establishmentId
+                ) {
+                    $yearQuery->where('school_year_id', $schoolYearId)
+                        ->orWhere(function ($legacy) use (
+                            $schoolYearId,
+                            $establishmentId
+                        ) {
+                            $legacy->whereNull('school_year_id')
+                                ->whereHas('inscriptions', function ($inscriptions) use (
+                                    $schoolYearId,
+                                    $establishmentId
+                                ) {
+                                    $inscriptions
+                                        ->where('school_year_id', $schoolYearId)
+                                        ->where('establishment_id', $establishmentId);
+                                });
+                        });
+                });
+            })
+            ->with([
+                'teacher',
+                'schoolYear',
+                'inscriptions' => function ($query) use (
+                    $schoolYearId,
+                    $establishmentId
+                ) {
+                    $query->where('establishment_id', $establishmentId)
+                        ->when(
+                            $schoolYearId !== null,
+                            fn ($q) => $q->where(
+                                'school_year_id',
+                                $schoolYearId
+                            )
+                        )
+                        ->with(['student', 'schoolYear'])
+                        ->orderBy('id');
+                },
+            ])
             ->orderBy('nom_classe')
             ->get();
 
+        /*
+         * Planning réel de cette salle, limité à l'établissement
+         * et à l'année scolaire sélectionnée.
+         */
+        $emplois = EmploiDuTemps::query()
+            ->where('establishment_id', $establishmentId)
+            ->where('salle_id', $salle->id)
+            ->when(
+                $schoolYearId !== null,
+                fn ($query) => $query->where(
+                    'school_year_id',
+                    $schoolYearId
+                )
+            )
+            ->with([
+                'classRoom',
+                'subject',
+                'teacher',
+                'schoolYear',
+            ])
+            ->orderByRaw(
+                "FIELD(jour, 'Lundi', 'Mardi', 'Mercredi',
+                 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche')"
+            )
+            ->orderBy('heure_debut')
+            ->get();
+
+        /*
+         * Liste des élèves inscrits dans les classes de la salle.
+         * Correction : class_room contient bien la classe, et non
+         * l'objet inscription.
+         */
         $students = $classRooms
             ->flatMap(function ($classRoom) {
                 return $classRoom->inscriptions
-                    ->filter(function ($inscription) {
-                        return $inscription->student !== null;
-                    })
-                    ->map(function ($inscription) {
-                        return [
-                            'student' => $inscription->student,
-                            'class_room' => $inscription,
-                            'inscription' => $inscription,
-                        ];
-                    });
+                    ->filter(fn ($inscription) => $inscription->student !== null)
+                    ->map(fn ($inscription) => [
+                        'student' => $inscription->student,
+                        'class_room' => $classRoom,
+                        'inscription' => $inscription,
+                    ]);
             })
-            ->unique(function ($item) {
-                return $item['student']->id;
-            })
+            ->unique(fn ($item) => $item['student']->id)
             ->values();
 
-        $teachers = $classRooms
-            ->filter(function ($classRoom) {
-                return $classRoom->teacher !== null;
-            })
-            ->map(function ($classRoom) {
-                return [
+        /*
+         * Enseignants :
+         * - enseignant principal de la classe ;
+         * - enseignants présents dans le planning de cette salle.
+         */
+        $teacherItems = collect();
+
+        foreach ($classRooms as $classRoom) {
+            if ($classRoom->teacher) {
+                $key = $classRoom->teacher->id . '-' . $classRoom->id . '-principal';
+
+                $teacherItems->put($key, [
                     'teacher' => $classRoom->teacher,
                     'class_room' => $classRoom,
-                ];
-            })
-            ->unique(function ($item) {
-                return $item['teacher']->id;
-            })
+                    'subject' => null,
+                    'jour' => null,
+                    'heure_debut' => null,
+                    'heure_fin' => null,
+                ]);
+            }
+        }
+
+        foreach ($emplois as $emploi) {
+            if (!$emploi->teacher) {
+                continue;
+            }
+
+            $key = implode('-', [
+                $emploi->teacher->id,
+                $emploi->class_room_id,
+                $emploi->subject_id,
+            ]);
+
+            $teacherItems->put($key, [
+                'teacher' => $emploi->teacher,
+                'class_room' => $emploi->classRoom,
+                'subject' => $emploi->subject,
+                'jour' => $emploi->jour,
+                'heure_debut' => $emploi->heure_debut,
+                'heure_fin' => $emploi->heure_fin,
+            ]);
+        }
+
+        $teachers = $teacherItems->values();
+
+        // Une matière peut être programmée dans plusieurs classes.
+        // Conserver une entrée distincte pour chaque couple matière/classe.
+        $subjects = $emplois
+            ->filter(fn ($emploi) => $emploi->subject !== null)
+            ->unique(fn ($emploi) => $emploi->subject->id . '-' . $emploi->class_room_id)
             ->values();
+
+        $totalStudents = $students->count();
+        $totalClasses = $classRooms->count();
+        $totalTeachers = $teachers
+            ->pluck('teacher.id')
+            ->filter()
+            ->unique()
+            ->count();
 
         return view('salles.show', compact(
             'salle',
+            'schoolYear',
+            'schoolYears',
             'classRooms',
             'students',
-            'teachers'
+            'teachers',
+            'subjects',
+            'emplois',
+            'totalStudents',
+            'totalClasses',
+            'totalTeachers'
         ));
     }
 

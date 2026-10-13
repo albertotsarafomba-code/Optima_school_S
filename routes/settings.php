@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth'])->group(function () {
     Route::redirect('settings', 'settings/profile');
 
-    Route::livewire('settings/profile', Profile::class)->name('profile.edit');
+    Route::view('settings/profile', 'settings.profile-page')
+        ->name('profile.edit');
 });
 
 Route::middleware(['auth', 'verified'])->group(function () {

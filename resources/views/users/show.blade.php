@@ -22,12 +22,12 @@
             'border' => 'border-green-200',
         ],
 
-        'eleve' => [
-            'label' => 'Élève',
-            'icon' => 'book-open',
-            'bg' => 'bg-indigo-50',
-            'text' => 'text-indigo-700',
-            'border' => 'border-indigo-200',
+        'comptable' => [
+            'label' => 'Comptabilité',
+            'icon' => 'calculator',
+            'bg' => 'bg-purple-50',
+            'text' => 'text-purple-700',
+            'border' => 'border-purple-200',
         ],
 
         'parent' => [
@@ -39,7 +39,7 @@
         ],
 
         'secretariat' => [
-            'label' => 'Secrétariat / Comptabilité',
+            'label' => 'Secrétariat',
             'icon' => 'briefcase-business',
             'bg' => 'bg-amber-50',
             'text' => 'text-amber-700',
