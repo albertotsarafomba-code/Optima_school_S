@@ -29,12 +29,12 @@ class RegistrationTest extends TestCase
         $response = $this->post(route('register.store'), [
             'name' => 'John Doe',
             'email' => 'test@example.com',
-            'password' => 'password',
-            'password_confirmation' => 'password',
+            'password' => 'NewPass123!',
+            'password_confirmation' => 'NewPass123!',
         ]);
 
         $response->assertSessionHasNoErrors()
-            ->assertRedirect(route('dashboard', absolute: false));
+            ->assertRedirect(route('after-login', absolute: false));
 
         $this->assertAuthenticated();
     }

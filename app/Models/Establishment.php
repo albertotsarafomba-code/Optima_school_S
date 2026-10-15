@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Establishment extends Model
 {
@@ -153,6 +154,15 @@ class Establishment extends Model
      * On utilise ParentModel et non Parent,
      * car "parent" est un mot réservé en PHP.
      */
+    /**
+     * Abonnement logiciel de cet établissement.
+     * Distinct des paiements scolaires.
+     */
+    public function abonnement(): HasOne
+    {
+        return $this->hasOne(Abonnement::class, 'establishment_id');
+    }
+
     public function parents(): HasMany
     {
         return $this->hasMany(

@@ -17,10 +17,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (Schema::hasColumn('users', 'profile_photo_path')) {
-            Schema::table('users', function (Blueprint $table) {
-                $table->dropColumn('profile_photo_path');
-            });
-        }
+        // Ne pas supprimer profile_photo_path :
+        // cette colonne est également gérée par la migration précédente.
     }
 };

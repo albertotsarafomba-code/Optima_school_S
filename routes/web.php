@@ -25,6 +25,10 @@ use App\Http\Controllers\EcolageMensuelController;
 use App\Http\Controllers\EmploiDuTempsController;
 use App\Http\Controllers\ParentController;
 use App\Http\Controllers\ParentDashboardController;
+use App\Http\Controllers\SuperAdminSetupController;
+use App\Http\Controllers\SuperAdminConfigurationController;
+use App\Http\Controllers\SuperAdminAbonnementController;
+use App\Http\Controllers\AbonnementController;
 
 /*
 |--------------------------------------------------------------------------
@@ -36,7 +40,98 @@ Route::get('/', function () {
     return redirect()->route('dashboard');
 });
 
+/* Configuration initiale, disponible une seule fois. */
+Route::middleware('throttle:5,1')->group(function () {
+    Route::get('/super-admin/setup', [SuperAdminSetupController::class, 'create'])
+        ->name('super-admin.setup');
+
+    Route::post('/super-admin/setup', [SuperAdminSetupController::class, 'store'])
+        ->name('super-admin.setup.store');
+});
+
 Route::middleware('auth')->group(function () {
+
+    /*
+     * CONFIGURATION DE LA PLATEFORME — SUPER ADMIN UNIQUEMENT
+     */
+    Route::middleware('role:super_admin')
+        ->prefix('super-admin/configuration')
+        ->name('super-admin.configuration.')
+        ->group(function () {
+            Route::get(
+                '/',
+                [SuperAdminConfigurationController::class, 'index']
+            )->name('index');
+
+            Route::put(
+                '/plateforme',
+                [SuperAdminConfigurationController::class, 'updatePlatform']
+            )->name('platform');
+
+            Route::put(
+                '/profil',
+                [SuperAdminConfigurationController::class, 'updateProfile']
+            )->name('profile');
+
+            Route::put(
+                '/mot-de-passe',
+                [SuperAdminConfigurationController::class, 'updatePassword']
+            )->name('password');
+        });
+
+
+
+    /*
+     * GESTION DES ABONNEMENTS — SUPER ADMIN UNIQUEMENT
+     */
+    Route::middleware('role:super_admin')
+        ->prefix('super-admin/abonnements')
+        ->name('super-admin.abonnements.')
+        ->group(function () {
+            Route::get(
+                '/',
+                [SuperAdminAbonnementController::class, 'index']
+            )->name('index');
+
+            Route::get(
+                '/etablissements/{establishment}',
+                [SuperAdminAbonnementController::class, 'show']
+            )->name('show');
+
+            Route::post(
+                '/etablissements/{establishment}/tarif',
+                [SuperAdminAbonnementController::class, 'configurerTarif']
+            )->name('tarif');
+
+            Route::post(
+                '/paiements/{paiement}/valider',
+                [SuperAdminAbonnementController::class, 'validerPaiement']
+            )->name('paiements.valider');
+
+            Route::post(
+                '/paiements/{paiement}/rejeter',
+                [SuperAdminAbonnementController::class, 'rejeterPaiement']
+            )->name('paiements.rejeter');
+        });
+
+    /*
+     * ABONNEMENT LOGICIEL — ADMIN DE SON ETABLISSEMENT
+     */
+    Route::middleware('role:admin')
+        ->prefix('mon-abonnement')
+        ->name('admin.abonnement.')
+        ->group(function () {
+            Route::get(
+                '/',
+                [AbonnementController::class, 'index']
+            )->name('index');
+
+            Route::post(
+                '/paiements',
+                [AbonnementController::class, 'store']
+            )->name('paiements.store');
+        });
+
     /*
      * ESPACE PARENT — CONSULTATION UNIQUEMENT
      */
@@ -58,10 +153,18 @@ Route::middleware('auth')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::get('/dashboard', [
-        DashboardController::class,
-        'index'
-    ])->name('dashboard');
+    Route::middleware('role:super_admin')->get(
+        '/super-admin/dashboard',
+        [SuperAdminSetupController::class, 'dashboard']
+    )->name('super-admin.dashboard');
+
+    Route::get('/dashboard', function () {
+        if (auth()->user()?->role === 'super_admin') {
+            return redirect()->route('super-admin.dashboard');
+        }
+
+        return app(DashboardController::class)->index(request());
+    })->name('dashboard');
 
 
     /*
@@ -861,6 +964,10 @@ Route::middleware(
 
             if (!$user) {
                 return redirect()->route('login');
+            }
+
+            if ($user->role === 'super_admin') {
+                return redirect()->route('super-admin.dashboard');
             }
 
             // Les parents utilisent leur espace dédié, strictement consultatif.

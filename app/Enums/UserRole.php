@@ -9,6 +9,7 @@ enum UserRole: string
     case PARENT = "parent";
     case SECRETARIAT = "secretariat";
     case COMPTABLE = "comptable";
+    case SUPER_ADMIN = "super_admin";
 
     public function label(): string
     {
@@ -18,6 +19,7 @@ enum UserRole: string
             self::PARENT => "Parent",
             self::SECRETARIAT => "Secrétariat",
             self::COMPTABLE => "Comptabilité",
+            self::SUPER_ADMIN => "Super Administrateur",
         };
     }
 }

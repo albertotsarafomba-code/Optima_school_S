@@ -18,6 +18,7 @@ class UserController extends Controller
     public function index(Request $request): View
     {
         $query = User::query()
+            ->where('role', '!=', UserRole::SUPER_ADMIN->value)
             ->with([
                 'assignedEstablishments.schoolType',
             ]);
@@ -40,7 +41,10 @@ class UserController extends Controller
 
         $validRoles = array_map(
             fn (UserRole $role) => $role->value,
-            UserRole::cases()
+            array_values(array_filter(
+                UserRole::cases(),
+                fn (UserRole $role) => $role !== UserRole::SUPER_ADMIN
+            ))
         );
 
         if (
@@ -62,7 +66,10 @@ class UserController extends Controller
             ->paginate(10)
             ->withQueryString();
 
-        $roles = UserRole::cases();
+        $roles = array_values(array_filter(
+                UserRole::cases(),
+                fn (UserRole $role) => $role !== UserRole::SUPER_ADMIN
+            ));
 
         return view(
             'users.index',
@@ -82,7 +89,10 @@ class UserController extends Controller
      */
     public function create(): View|RedirectResponse
     {
-        $roles = UserRole::cases();
+        $roles = array_values(array_filter(
+                UserRole::cases(),
+                fn (UserRole $role) => $role !== UserRole::SUPER_ADMIN
+            ));
 
         /*
         |--------------------------------------------------------------------------
@@ -141,7 +151,10 @@ class UserController extends Controller
     {
         $validRoles = array_map(
             fn (UserRole $role) => $role->value,
-            UserRole::cases()
+            array_values(array_filter(
+                UserRole::cases(),
+                fn (UserRole $role) => $role !== UserRole::SUPER_ADMIN
+            ))
         );
 
         $validated = $request->validate([
@@ -330,6 +343,12 @@ class UserController extends Controller
      */
     public function show(User $user): View
     {
+        abort_if(
+            $user->role === UserRole::SUPER_ADMIN->value,
+            403,
+            'Accès réservé au Super Administrateur.'
+        );
+
         $user->load([
             'assignedEstablishments.schoolType',
         ]);
@@ -348,7 +367,16 @@ class UserController extends Controller
      */
     public function edit(User $user): View
     {
-        $roles = UserRole::cases();
+        abort_if(
+            $user->role === UserRole::SUPER_ADMIN->value,
+            403,
+            'Accès réservé au Super Administrateur.'
+        );
+
+        $roles = array_values(array_filter(
+                UserRole::cases(),
+                fn (UserRole $role) => $role !== UserRole::SUPER_ADMIN
+            ));
 
         $establishments = Establishment::query()
             ->with('schoolType')
@@ -380,9 +408,18 @@ class UserController extends Controller
         Request $request,
         User $user
     ): RedirectResponse {
+        abort_if(
+            $user->role === UserRole::SUPER_ADMIN->value,
+            403,
+            'Un administrateur ordinaire ne peut pas modifier un Super Admin.'
+        );
+
         $validRoles = array_map(
             fn (UserRole $role) => $role->value,
-            UserRole::cases()
+            array_values(array_filter(
+                UserRole::cases(),
+                fn (UserRole $role) => $role !== UserRole::SUPER_ADMIN
+            ))
         );
 
         $validated = $request->validate([
@@ -603,6 +640,12 @@ class UserController extends Controller
     public function destroy(
         User $user
     ): RedirectResponse {
+        abort_if(
+            $user->role === UserRole::SUPER_ADMIN->value,
+            403,
+            'Un administrateur ordinaire ne peut pas supprimer un Super Admin.'
+        );
+
         if ($user->id === auth()->id()) {
             return back()
                 ->with(

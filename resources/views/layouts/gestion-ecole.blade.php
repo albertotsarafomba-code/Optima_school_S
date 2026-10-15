@@ -764,6 +764,33 @@
                     </div>
 
 
+                    {{-- ABONNEMENT LOGICIEL --}}
+                    <a
+                        href="{{ route('admin.abonnement.index') }}"
+                        class="group mb-2 flex items-center gap-3 rounded-xl
+                               border px-4 py-3 text-sm font-semibold
+                               transition-all duration-200
+                               {{ request()->routeIs('admin.abonnement.*')
+                                    ? 'border-green-400 bg-green-600 text-white shadow-lg'
+                                    : 'border-blue-800 bg-blue-900 text-white hover:border-green-500 hover:bg-blue-800' }}"
+                    >
+                        <svg
+                            class="h-5 w-5 shrink-0"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                d="M3 7h18v12H3zM3 11h18M7 15h3M7 3v4M17 3v4"
+                            />
+                        </svg>
+
+                        <span>Mon abonnement</span>
+                    </a>
+
                     {{-- UTILISATEURS --}}
                     <a
                         href="{{ route('users.index') }}"

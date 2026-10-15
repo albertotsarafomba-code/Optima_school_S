@@ -647,7 +647,7 @@
                                         value="{{ old('nom') }}"
                                         required
                                         maxlength="255"
-                                        placeholder="Ex : ISSTM"
+                                        placeholder=" Nom Etablissement "
                                         class="w-full h-11 pl-10 pr-4 rounded-lg border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-sm transition"
                                     >
 
@@ -700,7 +700,7 @@
                                         name="adresse"
                                         rows="2"
                                         maxlength="255"
-                                        placeholder="Ex : Mahajanga Be"
+                                        placeholder=" Adresse "
                                         class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-sm transition resize-none"
                                     >{{ old('adresse') }}</textarea>
 
@@ -809,7 +809,7 @@
                                             name="email"
                                             value="{{ old('email') }}"
                                             maxlength="255"
-                                            placeholder="contact@ecole.com"
+                                            placeholder="contact@gmail.com"
                                             class="w-full h-11 pl-10 pr-3 rounded-lg border border-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none text-sm transition"
                                         >
 

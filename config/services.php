@@ -35,4 +35,5 @@ return [
         ],
     ],
 
+    'super_admin_setup_key' => env('SUPER_ADMIN_SETUP_KEY'),
 ];
