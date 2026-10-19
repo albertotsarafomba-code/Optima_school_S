@@ -41,3 +41,11 @@ backup_gestion_ecole.sql
 *.validation.backup.php
 *.php.bak2
 *.php.backup2
+
+# Sauvegardes locales — ne pas publier
+*.before-*
+/backups/
+/storage/backups/
+
+# Copie locale contenant un depot Git imbrique
+/optima_school/
