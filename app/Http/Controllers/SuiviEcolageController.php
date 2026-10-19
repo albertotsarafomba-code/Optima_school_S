@@ -9,6 +9,7 @@ use App\Models\Establishment;
 use App\Models\Inscription;
 use App\Models\Paiement;
 use App\Models\SchoolYear;
+use App\Notifications\NotificationGenerale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -673,6 +674,52 @@ class SuiviEcolageController extends Controller
          * mais ils ne sont volontairement pas utilisés ici.
          */
         $paiement->save();
+
+        // Informer les autres comptables de cet établissement.
+        try {
+            $etablissementPaiement = Establishment::find(
+                $paiement->establishment_id
+            );
+
+            if ($etablissementPaiement) {
+                $eventKey = 'paiement:' . $paiement->id . ':enregistre';
+
+                $destinataires = $etablissementPaiement->users()
+                    ->where('role', 'comptable')
+                    ->get();
+
+                foreach ($destinataires as $destinataire) {
+                    // Ne pas notifier le compte qui vient d'enregistrer le paiement.
+                    if ((int) $destinataire->id === (int) auth()->id()) {
+                        continue;
+                    }
+
+                    $dejaNotifie = $destinataire->notifications()
+                        ->where('data->event_key', $eventKey)
+                        ->exists();
+
+                    if (!$dejaNotifie) {
+                        $destinataire->notify(new NotificationGenerale([
+                            'event_key' => $eventKey,
+                            'title' => 'Nouveau paiement d’écolage',
+                            'message' => 'Un paiement d’écolage de '
+                                . number_format((float) $paiement->montant, 0, ',', ' ')
+                                . ' MGA a été enregistré. Reçu : '
+                                . ($paiement->numero_recu ?? 'non renseigné') . '.',
+                            'url' => route('paiements.index'),
+                            'establishment_id' => $etablissementPaiement->id,
+                            'establishment_nom' => $etablissementPaiement->nom,
+                            'type' => 'paiement',
+                        ]));
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Notification paiement impossible : ' . $e->getMessage()
+            );
+        }
+
 
         return redirect()
             ->route('paiements.recu', ['paiement' => $paiement->id])

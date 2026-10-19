@@ -10,6 +10,7 @@ use App\Models\Salle;
 use App\Models\SchoolYear;
 use App\Models\Subject;
 use App\Models\Teacher;
+use App\Notifications\NotificationGenerale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -476,7 +477,7 @@ class EmploiDuTempsController extends Controller
             ]);
         }
 
-        EmploiDuTemps::create([
+        $emploiDuTemps = EmploiDuTemps::create([
             'establishment_id' => $establishment->id,
             'school_year_id' => $schoolYear->id,
             'class_room_id' => $classRoom->id,
@@ -487,6 +488,42 @@ class EmploiDuTempsController extends Controller
             'heure_debut' => $validated['heure_debut'],
             'heure_fin' => $validated['heure_fin'],
         ]);
+
+        // Notification de création destinée à l'enseignant concerné.
+        try {
+            $enseignantDestinataire = $teacher->user;
+
+            if ($enseignantDestinataire) {
+                $eventKey = 'emploi-du-temps:' . $emploiDuTemps->id . ':creation';
+
+                $dejaNotifie = $enseignantDestinataire->notifications()
+                    ->where('data->event_key', $eventKey)
+                    ->exists();
+
+                if (!$dejaNotifie) {
+                    $enseignantDestinataire->notify(new NotificationGenerale([
+                        'event_key' => $eventKey,
+                        'title' => 'Nouveau créneau dans votre emploi du temps',
+                        'message' => 'Un créneau vous a été attribué le '
+                            . $validated['jour'] . ', de '
+                            . $validated['heure_debut'] . ' à '
+                            . $validated['heure_fin'] . '.',
+                        'url' => route('emploi-du-temps.index', [
+                            'school_year_id' => $schoolYear->id,
+                            'class_room_id' => $classRoom->id,
+                        ]),
+                        'establishment_id' => $establishment->id,
+                        'establishment_nom' => $establishment->nom,
+                        'type' => 'emploi_du_temps',
+                    ]));
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Notification création emploi du temps impossible : ' . $e->getMessage()
+            );
+        }
+
 
         return redirect()
             ->route('emploi-du-temps.index', [
@@ -728,6 +765,7 @@ class EmploiDuTempsController extends Controller
             ]);
         }
 
+        $ancienTeacherId = (int) $emploiDuTemps->teacher_id;
         $emploiDuTemps->update([
             'class_room_id' => $classRoom->id,
             'subject_id' => $subject->id,
@@ -737,6 +775,70 @@ class EmploiDuTempsController extends Controller
             'heure_debut' => $validated['heure_debut'],
             'heure_fin' => $validated['heure_fin'],
         ]);
+
+        // Notifier le nouvel enseignant et l'ancien si l'affectation change.
+        try {
+            $eventKeyBase = 'emploi-du-temps:' . $emploiDuTemps->id
+                . ':modifie:' . ($emploiDuTemps->updated_at
+                    ? $emploiDuTemps->updated_at->format('YmdHis.u')
+                    : time());
+
+            $enseignantsANotifier = [];
+
+            if ($teacher->user) {
+                $enseignantsANotifier[] = [
+                    'user' => $teacher->user,
+                    'suffixe' => 'enseignant-actuel',
+                ];
+            }
+
+            if ($ancienTeacherId !== (int) $teacher->id) {
+                $ancienEnseignant = Teacher::query()
+                    ->where('id', $ancienTeacherId)
+                    ->where('establishment_id', $establishment->id)
+                    ->first();
+
+                if ($ancienEnseignant && $ancienEnseignant->user) {
+                    $enseignantsANotifier[] = [
+                        'user' => $ancienEnseignant->user,
+                        'suffixe' => 'ancien-enseignant',
+                    ];
+                }
+            }
+
+            foreach ($enseignantsANotifier as $info) {
+                $destinataire = $info['user'];
+                $eventKey = $eventKeyBase . ':' . $info['suffixe'];
+
+                $dejaNotifie = $destinataire->notifications()
+                    ->where('data->event_key', $eventKey)
+                    ->exists();
+
+                if (!$dejaNotifie) {
+                    $destinataire->notify(new NotificationGenerale([
+                        'event_key' => $eventKey,
+                        'title' => 'Emploi du temps modifié',
+                        'message' => 'Un créneau de votre emploi du temps a été modifié : '
+                            . $validated['jour'] . ', de '
+                            . $validated['heure_debut'] . ' à '
+                            . $validated['heure_fin'] . '.',
+                        'url' => route('emploi-du-temps.index', [
+                            'school_year_id' => $schoolYear->id,
+                            'class_room_id' => $classRoom->id,
+                        ]),
+                        'establishment_id' => $establishment->id,
+                        'establishment_nom' => $establishment->nom,
+                        'type' => 'emploi_du_temps',
+                    ]));
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Notification modification emploi du temps impossible : '
+                . $e->getMessage()
+            );
+        }
+
 
         return redirect()
             ->route('emploi-du-temps.index', [

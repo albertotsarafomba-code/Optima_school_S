@@ -52,6 +52,26 @@ Route::middleware('throttle:5,1')->group(function () {
 Route::middleware('auth')->group(function () {
 
     /*
+     * CENTRE DE NOTIFICATIONS — utilisateur connecté uniquement.
+     */
+    Route::get('/notifications', [
+        \App\Http\Controllers\NotificationController::class,
+        'index',
+    ])->name('notifications.index');
+
+    Route::post('/notifications/read-all', [
+        \App\Http\Controllers\NotificationController::class,
+        'markAllAsRead',
+    ])->name('notifications.read-all');
+
+    Route::post('/notifications/{notification}/read', [
+        \App\Http\Controllers\NotificationController::class,
+        'markAsRead',
+    ])->whereUuid('notification')->name('notifications.read');
+
+
+
+    /*
      * CONFIGURATION DE LA PLATEFORME — SUPER ADMIN UNIQUEMENT
      */
     Route::middleware('role:super_admin')

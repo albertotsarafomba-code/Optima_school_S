@@ -222,6 +222,68 @@ class AbonnementController extends Controller
             throw $exception;
         }
 
+        /*
+         * Informer les Super Administrateurs après l'enregistrement
+         * réussi du paiement. Une erreur de notification ne doit pas
+         * annuler ni perturber la soumission du paiement.
+         */
+        try {
+            $paiementSoumis = AbonnementPaiement::query()
+                ->where('abonnement_id', $abonnement->id)
+                ->where('statut', 'en_attente')
+                ->latest('id')
+                ->first();
+
+            if ($paiementSoumis) {
+                $etablissement = $abonnement->establishment;
+                $nomEtablissement = $etablissement?->nom
+                    ?? 'Établissement #' . $abonnement->establishment_id;
+
+                $destinataires = \App\Models\User::query()
+                    ->where('role', 'super_admin')
+                    ->get();
+
+                foreach ($destinataires as $destinataire) {
+                    $eventKey = 'abonnement-paiement:'
+                        . $paiementSoumis->id . ':soumis';
+
+                    $dejaNotifie = $destinataire->notifications()
+                        ->where('data->event_key', $eventKey)
+                        ->exists();
+
+                    if (!$dejaNotifie) {
+                        $destinataire->notify(
+                            new \App\Notifications\NotificationGenerale([
+                                'event_key' => $eventKey,
+                                'title' => 'Nouveau paiement d’abonnement',
+                                'message' => $nomEtablissement
+                                    . ' a soumis un paiement d’abonnement de '
+                                    . number_format(
+                                        (float) $paiementSoumis->montant,
+                                        0,
+                                        ',',
+                                        ' '
+                                    )
+                                    . ' MGA. Vérification nécessaire.',
+                                'url' => route('super-admin.abonnements.index'),
+                                'establishment_id' => $abonnement->establishment_id,
+                                'establishment_nom' => $nomEtablissement,
+                                'type' => 'abonnement',
+                            ])
+                        );
+                    }
+                }
+            }
+        } catch (\Throwable $notificationException) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Notification de soumission d’abonnement impossible.',
+                [
+                    'abonnement_id' => $abonnement->id,
+                    'error' => $notificationException->getMessage(),
+                ]
+            );
+        }
+
         return redirect()
             ->route('admin.abonnement.index')
             ->with(

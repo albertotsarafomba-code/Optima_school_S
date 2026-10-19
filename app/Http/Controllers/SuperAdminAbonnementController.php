@@ -217,6 +217,53 @@ class SuperAdminAbonnementController extends Controller
             $paiement->save();
         });
 
+        /*
+         * Informer le propriétaire de l'établissement après validation.
+         * La mise à jour de l'abonnement est déjà terminée.
+         */
+        try {
+            $paiementValide = AbonnementPaiement::query()
+                ->with(['abonnement.establishment.user'])
+                ->find($paiement->id);
+
+            $etablissement = $paiementValide?->abonnement?->establishment;
+            $administrateur = $etablissement?->user;
+
+            if ($administrateur) {
+                $eventKey = 'abonnement-paiement:'
+                    . $paiementValide->id . ':valide';
+
+                $dejaNotifie = $administrateur->notifications()
+                    ->where('data->event_key', $eventKey)
+                    ->exists();
+
+                if (!$dejaNotifie) {
+                    $administrateur->notify(
+                        new \App\Notifications\NotificationGenerale([
+                            'event_key' => $eventKey,
+                            'title' => 'Paiement d’abonnement validé',
+                            'message' => 'Votre paiement d’abonnement pour '
+                                . ($etablissement->nom ?? 'votre établissement')
+                                . ' a été validé. Votre abonnement a été activé '
+                                . 'ou renouvelé.',
+                            'url' => route('admin.abonnement.index'),
+                            'establishment_id' => $etablissement->id,
+                            'establishment_nom' => $etablissement->nom,
+                            'type' => 'abonnement',
+                        ])
+                    );
+                }
+            }
+        } catch (\Throwable $notificationException) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Notification de validation d’abonnement impossible.',
+                [
+                    'paiement_id' => $paiement->id,
+                    'error' => $notificationException->getMessage(),
+                ]
+            );
+        }
+
         return redirect()
             ->back()
             ->with(
@@ -424,6 +471,57 @@ class SuperAdminAbonnementController extends Controller
 
             $paiement->save();
         });
+
+        /*
+         * Informer l'administrateur de l'établissement du refus.
+         * Cette notification intervient après l'enregistrement du refus.
+         */
+        try {
+            $paiementRefuse = AbonnementPaiement::query()
+                ->with(['abonnement.establishment.user'])
+                ->find($paiement->id);
+
+            $etablissement = $paiementRefuse?->abonnement?->establishment;
+            $administrateur = $etablissement?->user;
+
+            if ($administrateur) {
+                $eventKey = 'abonnement-paiement:'
+                    . $paiementRefuse->id . ':rejete';
+
+                $dejaNotifie = $administrateur->notifications()
+                    ->where('data->event_key', $eventKey)
+                    ->exists();
+
+                if (!$dejaNotifie) {
+                    $motif = trim(
+                        (string) $paiementRefuse->note_verification
+                    );
+
+                    $administrateur->notify(
+                        new \App\Notifications\NotificationGenerale([
+                            'event_key' => $eventKey,
+                            'title' => 'Paiement d’abonnement refusé',
+                            'message' => 'Le paiement de votre abonnement pour '
+                                . ($etablissement->nom ?? 'votre établissement')
+                                . ' a été refusé. Motif : '
+                                . ($motif !== '' ? $motif : 'Non précisé'),
+                            'url' => route('admin.abonnement.index'),
+                            'establishment_id' => $etablissement->id,
+                            'establishment_nom' => $etablissement->nom,
+                            'type' => 'abonnement',
+                        ])
+                    );
+                }
+            }
+        } catch (\Throwable $notificationException) {
+            \Illuminate\Support\Facades\Log::warning(
+                'Notification de refus d’abonnement impossible.',
+                [
+                    'paiement_id' => $paiement->id,
+                    'error' => $notificationException->getMessage(),
+                ]
+            );
+        }
 
         return redirect()
             ->back()

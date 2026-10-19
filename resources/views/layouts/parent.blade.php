@@ -34,6 +34,8 @@
 
             <div class="flex items-center gap-3">
 
+                @include('notifications.bell')
+
                 <span class="hidden text-sm font-semibold text-slate-700 sm:block">
                     {{ auth()->user()->name ?? 'Parent' }}
                 </span>

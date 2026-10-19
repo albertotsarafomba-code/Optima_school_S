@@ -7,6 +7,7 @@ use App\Models\Establishment;
 use App\Models\Inscription;
 use App\Models\SchoolYear;
 use App\Models\Student;
+use App\Notifications\NotificationGenerale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -861,6 +862,38 @@ class InscriptionController extends Controller
                     Inscription::create(
                         $inscriptionData
                     );
+
+                // Notification au secrétariat du même établissement.
+                try {
+                    $eventKey = 'inscription:' . $inscription->id . ':nouvelle';
+
+                    $destinataires = $establishment->users()
+                        ->where('role', 'secretariat')
+                        ->get();
+
+                    foreach ($destinataires as $destinataire) {
+                        $dejaNotifie = $destinataire->notifications()
+                            ->where('data->event_key', $eventKey)
+                            ->exists();
+
+                        if (!$dejaNotifie) {
+                            $destinataire->notify(new NotificationGenerale([
+                                'event_key' => $eventKey,
+                                'title' => 'Nouvelle inscription',
+                                'message' => 'Une nouvelle inscription a été enregistrée dans votre établissement.',
+                                'url' => route('inscriptions.index'),
+                                'establishment_id' => $establishment->id,
+                                'establishment_nom' => $establishment->nom,
+                                'type' => 'inscription',
+                            ]));
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning(
+                        'Notification inscription impossible : ' . $e->getMessage()
+                    );
+                }
+
 
                 return redirect()
                     ->route(

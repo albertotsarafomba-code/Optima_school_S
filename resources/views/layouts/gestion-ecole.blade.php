@@ -1531,25 +1531,30 @@
             ====================================================== --}}
             @if(auth()->check() && auth()->user()->role === 'parent')
 
-                {{-- =================================================
-                     HEADER PARENT
-                ================================================== --}}
                 <header
                     class="sticky top-0 z-30 flex min-h-20 items-center
-                           justify-between gap-6 border-b border-slate-200
-                           bg-white px-6 py-3 shadow-sm sm:px-8"
+                           justify-between gap-4 border-b border-slate-200
+                           bg-white px-4 py-3 shadow-sm sm:px-8"
                 >
-
-                <header
-                    class="sticky top-0 z-30 min-h-20
-                           border-b border-slate-200
-                           bg-white shadow-sm"
-                >
-                </header>
-
+                    <div class="min-w-0">
+                        <div class="text-xs font-bold uppercase tracking-wider text-blue-600">
+                            OPTIMA SCHOOL
+                        </div>
+                        <h1 class="mt-1 truncate text-lg font-black text-slate-800 sm:text-xl">
+                            @yield('page-title', 'Espace famille')
+                        </h1>
                     </div>
 
+                    <div class="flex shrink-0 items-center gap-3">
+                        @include('notifications.bell')
 
+                        <div class="hidden text-right sm:block">
+                            <div class="text-sm font-bold text-slate-800">
+                                {{ auth()->user()->name }}
+                            </div>
+                            <div class="text-xs capitalize text-slate-500">Parent</div>
+                        </div>
+                    </div>
                 </header>
 
             @else
@@ -1584,6 +1589,8 @@
                     @auth
 
                         <div class="flex items-center gap-3">
+
+                            @include('notifications.bell')
 
                             <div class="hidden text-right sm:block">
 

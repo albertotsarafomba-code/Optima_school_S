@@ -892,6 +892,8 @@
         </a>
 
         <div class="top-actions">
+            @include('notifications.bell')
+
             <div class="admin-profile">
                 <div class="avatar">
                     @if($profilePhoto)
