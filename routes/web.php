@@ -103,6 +103,21 @@ Route::middleware('auth')->group(function () {
                 [SuperAdminAbonnementController::class, 'configurerTarif']
             )->name('tarif');
 
+            Route::get(
+                '/paiements/{paiement}/verification',
+                [SuperAdminAbonnementController::class, 'verificationPaiement']
+            )->name('paiements.verification');
+
+            Route::get(
+                '/paiements/{paiement}/justificatif/telecharger',
+                [SuperAdminAbonnementController::class, 'telechargerJustificatif']
+            )->name('paiements.justificatif.telecharger');
+
+            Route::get(
+                '/paiements/{paiement}/justificatif',
+                [SuperAdminAbonnementController::class, 'voirJustificatif']
+            )->name('paiements.justificatif');
+
             Route::post(
                 '/paiements/{paiement}/valider',
                 [SuperAdminAbonnementController::class, 'validerPaiement']

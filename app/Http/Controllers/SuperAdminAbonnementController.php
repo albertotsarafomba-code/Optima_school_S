@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class SuperAdminAbonnementController extends Controller
@@ -177,7 +178,8 @@ class SuperAdminAbonnementController extends Controller
 
             if (
                 $expirationActuelle
-                && Carbon::parse($expirationActuelle)->isFuture()
+                && Carbon::parse($expirationActuelle)->startOfDay()
+                    ->greaterThanOrEqualTo($now->copy()->startOfDay())
             ) {
                 $base = Carbon::parse($expirationActuelle);
             } else {
@@ -189,8 +191,12 @@ class SuperAdminAbonnementController extends Controller
                 ->addMonthNoOverflow()
                 ->toDateString();
 
-            if (!$abonnement->date_debut || !$expirationActuelle
-                || Carbon::parse($expirationActuelle)->isPast()) {
+            if (
+                !$abonnement->date_debut
+                || !$expirationActuelle
+                || Carbon::parse($expirationActuelle)->startOfDay()
+                    ->lessThan($now->copy()->startOfDay())
+            ) {
                 $abonnement->date_debut = $now->toDateString();
             }
 
@@ -217,6 +223,165 @@ class SuperAdminAbonnementController extends Controller
                 'success',
                 'Paiement validé. L’abonnement a été activé ou renouvelé.'
             );
+    }
+
+
+    /**
+     * Page de vérification détaillée d'un paiement.
+     * Le fichier reste privé et accessible uniquement au Super Admin.
+     */
+    public function verificationPaiement(
+        AbonnementPaiement $paiement
+    ): View {
+        $this->ensureSuperAdmin();
+
+        $paiement->load('abonnement.establishment');
+
+        $establishment = $paiement->abonnement?->establishment;
+
+        abort_if(
+            !$establishment,
+            404,
+            'Établissement du paiement introuvable.'
+        );
+
+        $path = $paiement->preuve_paiement;
+
+        abort_unless(
+            is_string($path)
+                && str_starts_with($path, 'abonnements/preuves/'),
+            404,
+            'Justificatif introuvable.'
+        );
+
+        $disk = Storage::disk('local');
+
+        abort_unless(
+            $disk->exists($path),
+            404,
+            'Le fichier justificatif est introuvable.'
+        );
+
+        $mime = $disk->mimeType($path) ?: '';
+
+        abort_unless(
+            in_array($mime, [
+                'image/jpeg',
+                'image/png',
+                'application/pdf',
+            ], true),
+            404,
+            'Format de justificatif non autorisé.'
+        );
+
+        return view(
+            'super-admin.abonnements.verification-paiement',
+            compact('paiement', 'establishment', 'mime')
+        );
+    }
+
+    /**
+     * Télécharger un justificatif privé après vérification du rôle
+     * et du type de fichier.
+     */
+    public function telechargerJustificatif(
+        AbonnementPaiement $paiement
+    ) {
+        $this->ensureSuperAdmin();
+
+        $path = $paiement->preuve_paiement;
+
+        abort_unless(
+            is_string($path)
+                && str_starts_with($path, 'abonnements/preuves/'),
+            404,
+            'Justificatif introuvable.'
+        );
+
+        $disk = Storage::disk('local');
+
+        abort_unless(
+            $disk->exists($path),
+            404,
+            'Le fichier justificatif est introuvable.'
+        );
+
+        $mime = $disk->mimeType($path) ?: '';
+
+        abort_unless(
+            in_array($mime, [
+                'image/jpeg',
+                'image/png',
+                'application/pdf',
+            ], true),
+            404,
+            'Format de justificatif non autorisé.'
+        );
+
+        $extension = match ($mime) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'application/pdf' => 'pdf',
+        };
+
+        return $disk->download(
+            $path,
+            'justificatif-paiement-' . $paiement->id . '.' . $extension,
+            [
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'private, no-store, max-age=0',
+            ]
+        );
+    }
+
+    /**
+     * Afficher un justificatif de paiement depuis le disque privé.
+     * Accès réservé au Super Admin.
+     */
+    public function voirJustificatif(
+        AbonnementPaiement $paiement
+    ) {
+        $this->ensureSuperAdmin();
+
+        $path = $paiement->preuve_paiement;
+
+        abort_unless(
+            is_string($path)
+                && str_starts_with($path, 'abonnements/preuves/'),
+            404,
+            'Justificatif introuvable.'
+        );
+
+        $disk = Storage::disk('local');
+
+        abort_unless(
+            $disk->exists($path),
+            404,
+            'Le fichier justificatif est introuvable.'
+        );
+
+        $mime = $disk->mimeType($path) ?: '';
+
+        abort_unless(
+            in_array($mime, [
+                'image/jpeg',
+                'image/png',
+                'application/pdf',
+            ], true),
+            404,
+            'Format de justificatif non autorisé.'
+        );
+
+        return $disk->response(
+            $path,
+            basename($path),
+            [
+                'Content-Type' => $mime,
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'private, no-store, max-age=0',
+            ],
+            'inline'
+        );
     }
 
     /**

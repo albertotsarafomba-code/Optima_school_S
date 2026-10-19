@@ -1337,6 +1337,17 @@
                             </td>
 
                             <td>
+                                @if ($paiement->preuve_paiement)
+                                    <a
+                                        class="button blue"
+                                        href="{{ route('super-admin.abonnements.paiements.verification', $paiement) }}"
+                                    >
+                                        Vérifier le paiement
+                                    </a>
+                                @else
+                                    <span class="muted">Aucun justificatif</span>
+                                @endif
+
                                 @if ($paiement->statut === 'en_attente')
                                     <form class="action-form"
                                           method="POST"

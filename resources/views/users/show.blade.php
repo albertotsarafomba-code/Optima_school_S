@@ -728,14 +728,16 @@
                     <form
                         action="{{ route('users.destroy', $user) }}"
                         method="POST"
-                        onsubmit="return confirm('Voulez-vous vraiment supprimer cet utilisateur ?');"
+                        data-delete-modal-form
+                        data-user-name="{{ $user->name ?? $user->email ?? 'cet utilisateur' }}"
                     >
 
                         @csrf
                         @method('DELETE')
 
                         <button
-                            type="submit"
+                            type="button"
+                            data-open-delete-modal
                             class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
                         >
 
@@ -812,5 +814,140 @@
         }
     });
 </script>
+
+
+{{-- Modale de confirmation de suppression --}}
+<div id="user-delete-modal"
+     class="fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="user-delete-modal-title"
+     aria-describedby="user-delete-modal-description">
+
+    <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="bg-blue-900 px-6 py-5 text-white">
+            <div class="flex items-center gap-3">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15">
+                    <i data-lucide="shield-alert" class="h-6 w-6"></i>
+                </div>
+                <div>
+                    <h2 id="user-delete-modal-title" class="text-lg font-bold">
+                        Confirmer la suppression
+                    </h2>
+                    <p class="mt-1 text-sm text-blue-100">
+                        Vérifiez avant de continuer.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-6 py-5">
+            <p class="text-sm leading-6 text-slate-600">
+                Voulez-vous vraiment supprimer le compte :
+            </p>
+
+            <p id="user-delete-modal-name"
+               class="mt-2 break-words font-semibold text-slate-900"></p>
+
+            <div class="mt-4 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-3">
+                <i data-lucide="alert-triangle"
+                   class="mt-0.5 h-5 w-5 shrink-0 text-red-600"></i>
+                <p id="user-delete-modal-description"
+                   class="text-sm leading-5 text-red-800">
+                    Cette action est définitive. La suppression ne pourra pas être annulée.
+                </p>
+            </div>
+        </div>
+
+        <div class="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4 sm:flex-row sm:justify-end">
+            <button type="button"
+                    data-close-delete-modal
+                    class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+                <i data-lucide="x" class="h-4 w-4"></i>
+                Annuler
+            </button>
+
+            <button type="button"
+                    id="user-delete-confirm"
+                    class="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-200">
+                <i data-lucide="trash-2" class="h-4 w-4"></i>
+                Supprimer définitivement
+            </button>
+        </div>
+    </div>
+</div>
+
+@push('scripts')
+<script>
+(function () {
+    function initUserDeleteModal() {
+        const modal = document.getElementById('user-delete-modal');
+        if (!modal || modal.dataset.initialized === 'true') return;
+
+        modal.dataset.initialized = 'true';
+
+        const nameElement = document.getElementById('user-delete-modal-name');
+        const confirmButton = document.getElementById('user-delete-confirm');
+        let pendingForm = null;
+        let previousFocus = null;
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            pendingForm = null;
+
+            if (previousFocus && document.contains(previousFocus)) {
+                previousFocus.focus();
+            }
+        }
+
+        document.querySelectorAll('[data-open-delete-modal]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const form = button.closest('[data-delete-modal-form]');
+                if (!form) return;
+
+                pendingForm = form;
+                previousFocus = button;
+
+                nameElement.textContent = form.dataset.userName || 'cet utilisateur';
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+
+                if (window.lucide) window.lucide.createIcons();
+
+                document.querySelector('[data-close-delete-modal]').focus();
+            });
+        });
+
+        modal.querySelectorAll('[data-close-delete-modal]').forEach(function (button) {
+            button.addEventListener('click', closeModal);
+        });
+
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal) closeModal();
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+                closeModal();
+            }
+        });
+
+        confirmButton.addEventListener('click', function () {
+            if (!pendingForm) return;
+
+            confirmButton.disabled = true;
+            pendingForm.submit();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUserDeleteModal, { once: true });
+    } else {
+        initUserDeleteModal();
+    }
+})();
+</script>
+@endpush
 
 @endsection
